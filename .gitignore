@@ -1,0 +1,42 @@
+# Dependencies
+/node_modules
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+cat_files.sh
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Database
+/database
+*.db
+*.sqlite
+
+# Logs
+logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
