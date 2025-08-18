@@ -9,7 +9,6 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from './user';
 
 @Entity('magic_signin_tokens')
 @Index('magic_signin_tokens_token_hash_unique', ['tokenHash'], { unique: true })
@@ -107,8 +106,8 @@ export class MagicSigninToken {
   })
   updatedAt!: Date;
 
-  // Relationships
-  @ManyToOne(() => User, user => user.magicSigninTokens, {
+  // Relationships - using string name to avoid circular imports
+  @ManyToOne('User', 'magicSigninTokens', {
     onDelete: 'CASCADE',
     nullable: true
   })
@@ -116,7 +115,7 @@ export class MagicSigninToken {
     name: 'userId',
     foreignKeyConstraintName: 'fk_magic_signin_tokens_user'
   })
-  user?: User;
+  user?: any;
 
   // Computed properties
   get isExpired(): boolean {

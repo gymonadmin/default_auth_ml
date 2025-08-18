@@ -9,7 +9,6 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from './user';
 
 @Entity('sessions')
 @Index('sessions_token_hash_unique', ['tokenHash'], { unique: true })
@@ -92,15 +91,15 @@ export class Session {
   })
   updatedAt!: Date;
 
-  // Relationships
-  @ManyToOne(() => User, user => user.sessions, {
+  // Relationships - using string name to avoid circular imports
+  @ManyToOne('User', 'sessions', {
     onDelete: 'CASCADE'
   })
   @JoinColumn({ 
     name: 'userId',
     foreignKeyConstraintName: 'fk_sessions_user'
   })
-  user!: User;
+  user!: any;
 
   // Computed properties
   get isExpired(): boolean {

@@ -9,7 +9,6 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from './user';
 
 @Entity('profiles')
 @Index('profiles_user_id_unique', ['userId'], { unique: true })
@@ -49,15 +48,15 @@ export class Profile {
   })
   updatedAt!: Date;
 
-  // Relationships
-  @OneToOne(() => User, user => user.profile, {
+  // Relationships - using string name to avoid circular imports
+  @OneToOne('User', 'profile', {
     onDelete: 'CASCADE'
   })
   @JoinColumn({ 
     name: 'userId',
     foreignKeyConstraintName: 'fk_profiles_user'
   })
-  user!: User;
+  user!: any;
 
   // Computed properties
   get fullName(): string {

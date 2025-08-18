@@ -9,10 +9,6 @@ import {
   OneToOne,
   Index,
 } from 'typeorm';
-import { Profile } from './profile';
-import { Session } from './session';
-import { MagicSigninToken } from './magic-signin-token';
-import { AuditLog } from './audit-log';
 
 @Entity('users')
 @Index('idx_users_email', ['email'])
@@ -62,30 +58,30 @@ export class User {
   })
   updatedAt!: Date;
 
-  // Relationships
-  @OneToOne(() => Profile, profile => profile.user, {
+  // Relationships - using string names to avoid circular imports
+  @OneToOne('Profile', 'user', {
     cascade: ['remove'],
     onDelete: 'CASCADE'
   })
-  profile?: Profile;
+  profile?: any;
 
-  @OneToMany(() => Session, session => session.user, {
+  @OneToMany('Session', 'user', {
     cascade: ['remove'],
     onDelete: 'CASCADE'
   })
-  sessions?: Session[];
+  sessions?: any[];
 
-  @OneToMany(() => MagicSigninToken, token => token.user, {
+  @OneToMany('MagicSigninToken', 'user', {
     cascade: ['remove'],
     onDelete: 'CASCADE'
   })
-  magicSigninTokens?: MagicSigninToken[];
+  magicSigninTokens?: any[];
 
-  @OneToMany(() => AuditLog, auditLog => auditLog.user, {
+  @OneToMany('AuditLog', 'user', {
     cascade: ['remove'],
     onDelete: 'CASCADE'
   })
-  auditLogs?: AuditLog[];
+  auditLogs?: any[];
 
   // Computed properties
   get isDeleted(): boolean {

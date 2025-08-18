@@ -8,7 +8,6 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from './user';
 
 export enum AuditEvent {
   ACCOUNT_CONFIRMED = 'account_confirmed',
@@ -112,8 +111,8 @@ export class AuditLog {
   })
   createdAt!: Date;
 
-  // Relationships
-  @ManyToOne(() => User, user => user.auditLogs, {
+  // Relationships - using string name to avoid circular imports
+  @ManyToOne('User', 'auditLogs', {
     onDelete: 'CASCADE',
     nullable: true
   })
@@ -121,7 +120,7 @@ export class AuditLog {
     name: 'userId',
     foreignKeyConstraintName: 'fk_audit_logs_user'
   })
-  user?: User;
+  user?: any;
 
   // Static factory methods
   static createSuccess(
