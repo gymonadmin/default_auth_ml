@@ -11,8 +11,7 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/lib/config/database.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/lib/config/database.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/lib/config/database.ts",
-    "db:seed": "tsx src/scripts/seed.ts",
-    "test:phase5": "tsx src/scripts/test-phase5.ts"
+    "db:seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
