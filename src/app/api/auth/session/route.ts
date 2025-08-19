@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Session validation failed', error, {
+    logger.error('Session validation failed', error instanceof Error ? error : new Error(String(error)), {
       correlationId,
     });
 

@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Sign out request failed', error, {
+    logger.error('Sign out request failed', error instanceof Error ? error : new Error(String(error)), {
       correlationId,
     });
 

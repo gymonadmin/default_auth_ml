@@ -74,7 +74,7 @@ export class AuditLogRepository {
 
       return savedAuditLog;
     } catch (error) {
-      this.logger.error('Error creating audit log entry', error, { 
+      this.logger.error('Error creating audit log entry', error instanceof Error ? error : new Error(String(error)), {
         event: auditData.event,
         email: auditData.email 
       });
@@ -214,7 +214,7 @@ export class AuditLogRepository {
 
       return { logs, total };
     } catch (error) {
-      this.logger.error('Error finding audit logs with filters', error, { filters });
+      this.logger.error('Error finding audit logs with filters', error instanceof Error ? error : new Error(String(error)), { filters });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find audit logs with filters',
@@ -246,7 +246,7 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding audit logs by correlation ID', error, { correlationId });
+      this.logger.error('Error finding audit logs by correlation ID', error instanceof Error ? error : new Error(String(error)), { correlationId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find audit logs by correlation ID',
@@ -278,7 +278,7 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding recent audit logs for user', error, { userId });
+      this.logger.error('Error finding recent audit logs for user', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find recent audit logs for user',
@@ -310,7 +310,7 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding recent audit logs for email', error, { email });
+      this.logger.error('Error finding recent audit logs for email', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find recent audit logs for email',
@@ -353,7 +353,7 @@ export class AuditLogRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting events for email in window', error, { email, event });
+      this.logger.error('Error counting events for email in window', error instanceof Error ? error : new Error(String(error)), { email, event });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to count events for email in window',
@@ -383,7 +383,7 @@ export class AuditLogRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up old audit logs', error, { olderThan });
+      this.logger.error('Error cleaning up old audit logs', error instanceof Error ? error : new Error(String(error)), { olderThan });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to cleanup old audit logs',
@@ -429,7 +429,7 @@ export class AuditLogRepository {
         return acc;
       }, {} as Record<string, number>);
     } catch (error) {
-      this.logger.error('Error getting audit statistics', error, { startDate, endDate });
+      this.logger.error('Error getting audit statistics', error instanceof Error ? error : new Error(String(error)), { startDate, endDate });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to get audit statistics',

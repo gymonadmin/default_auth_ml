@@ -74,7 +74,7 @@ export class ErrorHandler {
 
     // Database/TypeORM errors
     if (this.isDatabaseError(error)) {
-      return this.handleDatabaseError(error);
+      return this.handleDatabaseError(error as Error);
     }
 
     // Generic Error

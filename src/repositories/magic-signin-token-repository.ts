@@ -50,7 +50,7 @@ export class MagicSigninTokenRepository {
 
       return token;
     } catch (error) {
-      this.logger.error('Error finding magic signin token by hash', error);
+      this.logger.error('Error finding magic signin token by hash', error instanceof Error ? error : new Error(String(error)));
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find magic signin token by hash',
@@ -81,7 +81,7 @@ export class MagicSigninTokenRepository {
 
       return token;
     } catch (error) {
-      this.logger.error('Error finding magic signin token by ID', error, { tokenId: id });
+      this.logger.error('Error finding magic signin token by ID', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find magic signin token by ID',
@@ -128,7 +128,7 @@ export class MagicSigninTokenRepository {
 
       return savedToken;
     } catch (error) {
-      this.logger.error('Error creating magic signin token', error, { 
+      this.logger.error('Error creating magic signin token', error instanceof Error ? error : new Error(String(error)), { 
         email: tokenData.email 
       });
       
@@ -181,7 +181,7 @@ export class MagicSigninTokenRepository {
         throw error;
       }
       
-      this.logger.error('Error marking magic signin token as used', error, { tokenId: id });
+      this.logger.error('Error marking magic signin token as used', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to mark magic signin token as used',
@@ -225,7 +225,7 @@ export class MagicSigninTokenRepository {
         throw error;
       }
       
-      this.logger.error('Error linking magic signin token to user', error, { 
+      this.logger.error('Error linking magic signin token to user', error instanceof Error ? error : new Error(String(error)), { 
         tokenId: id, 
         userId 
       });
@@ -267,7 +267,7 @@ export class MagicSigninTokenRepository {
 
       return validTokens;
     } catch (error) {
-      this.logger.error('Error finding valid magic signin tokens for email', error, { email });
+      this.logger.error('Error finding valid magic signin tokens for email', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find valid magic signin tokens for email',
@@ -304,7 +304,7 @@ export class MagicSigninTokenRepository {
 
       return invalidatedCount;
     } catch (error) {
-      this.logger.error('Error invalidating magic signin tokens for email', error, { email });
+      this.logger.error('Error invalidating magic signin tokens for email', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to invalidate magic signin tokens for email',
@@ -331,7 +331,7 @@ export class MagicSigninTokenRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up expired magic signin tokens', error);
+      this.logger.error('Error cleaning up expired magic signin tokens', error instanceof Error ? error : new Error(String(error)));
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to cleanup expired magic signin tokens',
@@ -369,7 +369,7 @@ export class MagicSigninTokenRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting unused tokens for email in window', error, { email });
+      this.logger.error('Error counting unused tokens for email in window', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to count unused tokens for email in window',
@@ -404,7 +404,7 @@ export class MagicSigninTokenRepository {
 
       return tokens;
     } catch (error) {
-      this.logger.error('Error finding recent magic signin tokens for user', error, { userId });
+      this.logger.error('Error finding recent magic signin tokens for user', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find recent magic signin tokens for user',
@@ -457,7 +457,7 @@ export class MagicSigninTokenRepository {
         throw error;
       }
       
-      this.logger.error('Error updating magic signin token location', error, { tokenId: id });
+      this.logger.error('Error updating magic signin token location', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to update magic signin token location',

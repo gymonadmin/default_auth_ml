@@ -62,7 +62,7 @@ export class EmailService {
 
     return {
       host: requiredEnvVars.SMTP_HOST!,
-      port: parseInt(requiredEnvVars.SMTP_PORT!),
+      port: parseInt(requiredEnvVars.SMTP_PORT!, 10),
       user: requiredEnvVars.SMTP_USER!,
       password: requiredEnvVars.SMTP_PASSWORD!,
       from: requiredEnvVars.EMAIL_FROM!,
@@ -101,7 +101,7 @@ export class EmailService {
       this.logger.info('Email transporter created successfully');
       return transporter;
     } catch (error) {
-      this.logger.error('Failed to create email transporter', error);
+      this.logger.error('Failed to create email transporter', error instanceof Error ? error : new Error(String(error)));
       throw new ServiceError(
         ErrorCode.EMAIL_SERVICE_ERROR,
         'Failed to initialize email service',
@@ -129,7 +129,7 @@ export class EmailService {
         return false;
       }
     } catch (error) {
-      this.logger.error('Email service connection verification error', error);
+      this.logger.error('Email service connection verification error', error instanceof Error ? error : new Error(String(error)));
       throw new ServiceError(
         ErrorCode.EMAIL_SERVICE_ERROR,
         'Failed to verify email service connection',
@@ -142,6 +142,9 @@ export class EmailService {
 
   /**
    * Send magic link email
+   *
+   * Throws ServiceError(ErrorCode.EMAIL_SERVICE_ERROR, ...) on failure so callers
+   * can reliably detect email delivery problems.
    */
   async sendMagicLinkEmail(data: MagicLinkEmailData): Promise<void> {
     try {
@@ -163,7 +166,7 @@ export class EmailService {
         headers: {
           'X-Priority': '1',
           'X-MSMail-Priority': 'High',
-          'Importance': 'high',
+          Importance: 'high',
         },
         // Tracking
         messageId: this.generateMessageId(),
@@ -177,10 +180,11 @@ export class EmailService {
         response: info.response,
       });
     } catch (error) {
-      this.logger.error('Failed to send magic link email', error, {
+      this.logger.error('Failed to send magic link email', error instanceof Error ? error : new Error(String(error)), {
         email: data.email,
       });
 
+      // Wrap underlying transporter error in a ServiceError so higher layers can react
       throw new ServiceError(
         ErrorCode.EMAIL_SERVICE_ERROR,
         'Failed to send magic link email',
@@ -397,7 +401,7 @@ ${appName}
       this.transporter.close();
       this.logger.info('Email service connections closed');
     } catch (error) {
-      this.logger.error('Error closing email service connections', error);
+      this.logger.error('Error closing email service connections', error instanceof Error ? error : new Error(String(error)));
     }
   }
 

@@ -45,7 +45,7 @@ export class SessionRepository {
 
       return session;
     } catch (error) {
-      this.logger.error('Error finding session by token hash', error);
+      this.logger.error('Error finding session by token hash', error instanceof Error ? error : new Error(String(error)));
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find session by token hash',
@@ -76,7 +76,7 @@ export class SessionRepository {
 
       return session;
     } catch (error) {
-      this.logger.error('Error finding session by ID', error, { sessionId: id });
+      this.logger.error('Error finding session by ID', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find session by ID',
@@ -119,7 +119,7 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
-      this.logger.error('Error creating session', error, { userId: sessionData.userId });
+      this.logger.error('Error creating session', error instanceof Error ? error : new Error(String(error)), { userId: sessionData.userId });
       
       if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
         throw new DatabaseError(
@@ -170,7 +170,7 @@ export class SessionRepository {
         throw error;
       }
       
-      this.logger.error('Error updating session last accessed time', error, { sessionId: id });
+      this.logger.error('Error updating session last accessed time', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to update session last accessed time',
@@ -206,7 +206,7 @@ export class SessionRepository {
         throw error;
       }
       
-      this.logger.error('Error revoking session', error, { sessionId: id });
+      this.logger.error('Error revoking session', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to revoke session',
@@ -237,7 +237,7 @@ export class SessionRepository {
 
       return revokedCount;
     } catch (error) {
-      this.logger.error('Error revoking all sessions for user', error, { userId });
+      this.logger.error('Error revoking all sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to revoke all sessions for user',
@@ -281,7 +281,7 @@ export class SessionRepository {
         throw error;
       }
       
-      this.logger.error('Error extending session expiry', error, { sessionId: id });
+      this.logger.error('Error extending session expiry', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to extend session expiry',
@@ -316,7 +316,7 @@ export class SessionRepository {
 
       return sessions;
     } catch (error) {
-      this.logger.error('Error finding active sessions for user', error, { userId });
+      this.logger.error('Error finding active sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find active sessions for user',
@@ -343,7 +343,7 @@ export class SessionRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up expired sessions', error);
+      this.logger.error('Error cleaning up expired sessions', error instanceof Error ? error : new Error(String(error)));
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to cleanup expired sessions',
@@ -372,7 +372,7 @@ export class SessionRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting active sessions for user', error, { userId });
+      this.logger.error('Error counting active sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to count active sessions for user',

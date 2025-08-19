@@ -34,14 +34,12 @@ export class RateLimitService {
 
       const redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
-        retryDelayOnFailover: 100,
         connectTimeout: 10000,
         lazyConnect: true,
         // Connection pool settings
         keepAlive: 30000,
         // Error handling
         enableAutoPipelining: true,
-        maxRetriesPerRequest: 3,
       });
 
       // Handle connection events
@@ -50,7 +48,7 @@ export class RateLimitService {
       });
 
       redis.on('error', (error) => {
-        this.logger.error('Redis connection error', error);
+        this.logger.error('Redis connection error', error instanceof Error ? error : new Error(String(error)));
       });
 
       redis.on('close', () => {
@@ -63,7 +61,7 @@ export class RateLimitService {
 
       return redis;
     } catch (error) {
-      this.logger.error('Failed to create Redis connection', error);
+      this.logger.error('Failed to create Redis connection', error instanceof Error ? error : new Error(String(error)));
       throw new ServiceError(
         ErrorCode.REDIS_ERROR,
         'Failed to initialize rate limiting service',
@@ -100,7 +98,7 @@ export class RateLimitService {
 
       return !result.allowed;
     } catch (error) {
-      this.logger.error('Rate limit check error', error, {
+      this.logger.error('Rate limit check error', error instanceof Error ? error : new Error(String(error)), {
         key: this.maskKey(key),
       });
       
@@ -153,7 +151,7 @@ export class RateLimitService {
 
       return count;
     } catch (error) {
-      this.logger.error('Rate limit increment error', error, {
+      this.logger.error('Rate limit increment error', error instanceof Error ? error : new Error(String(error)), {
         key: this.maskKey(key),
       });
       
@@ -220,7 +218,7 @@ export class RateLimitService {
 
       return result;
     } catch (error) {
-      this.logger.error('Rate limit status error', error, {
+      this.logger.error('Rate limit status error', error instanceof Error ? error : new Error(String(error)), {
         key: this.maskKey(key),
       });
       
@@ -249,7 +247,7 @@ export class RateLimitService {
         key: this.maskKey(key),
       });
     } catch (error) {
-      this.logger.error('Rate limit reset error', error, {
+      this.logger.error('Rate limit reset error', error instanceof Error ? error : new Error(String(error)), {
         key: this.maskKey(key),
       });
       
@@ -279,7 +277,7 @@ export class RateLimitService {
 
       return keys;
     } catch (error) {
-      this.logger.error('Get rate limit keys error', error, { pattern });
+      this.logger.error('Get rate limit keys error', error instanceof Error ? error : new Error(String(error)), { pattern });
       return [];
     }
   }
@@ -325,7 +323,7 @@ export class RateLimitService {
 
       return cleanedCount;
     } catch (error) {
-      this.logger.error('Rate limit cleanup error', error);
+      this.logger.error('Rate limit cleanup error', error instanceof Error ? error : new Error(String(error)));
       return 0;
     }
   }
@@ -344,7 +342,7 @@ export class RateLimitService {
 
       return isHealthy;
     } catch (error) {
-      this.logger.error('Redis health check failed', error);
+      this.logger.error('Redis health check failed', error instanceof Error ? error : new Error(String(error)));
       return false;
     }
   }
@@ -365,7 +363,7 @@ export class RateLimitService {
         status: this.redis.status,
       };
     } catch (error) {
-      this.logger.error('Failed to get Redis connection info', error);
+      this.logger.error('Failed to get Redis connection info', error instanceof Error ? error : new Error(String(error)));
       return { error: 'Failed to get connection info' };
     }
   }
@@ -406,7 +404,7 @@ export class RateLimitService {
       await this.redis.quit();
       this.logger.info('Redis connection closed');
     } catch (error) {
-      this.logger.error('Error closing Redis connection', error);
+      this.logger.error('Error closing Redis connection', error instanceof Error ? error : new Error(String(error)));
     }
   }
 

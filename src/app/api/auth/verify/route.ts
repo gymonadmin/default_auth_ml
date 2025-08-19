@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Magic link verification request failed', error, {
+    logger.error('Magic link verification request failed', error instanceof Error ? error : new Error(String(error)), {
       correlationId,
     });
 

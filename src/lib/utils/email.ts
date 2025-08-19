@@ -13,7 +13,16 @@ export function isValidEmail(email: string): boolean {
  * Normalize email address (lowercase and trim)
  */
 export function normalizeEmail(email: string): string {
-  return email.toLowerCase().trim();
+  const normalizedEmail = email.toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new ValidationError(
+      'Invalid email format',
+      { email: normalizedEmail, errorCode: ErrorCode.INVALID_EMAIL },
+      undefined,
+      'Please enter a valid email address'
+    );
+  }
+  return normalizedEmail;
 }
 
 /**
@@ -26,7 +35,7 @@ export function extractEmailDomain(email: string): string {
   if (parts.length !== 2) {
     throw new ValidationError(
       'Invalid email format',
-      { email },
+      { email, errorCode: ErrorCode.INVALID_EMAIL },
       undefined,
       'Please enter a valid email address'
     );
@@ -64,7 +73,7 @@ export function validateBusinessEmail(email: string): void {
   if (!isValidEmail(normalizedEmail)) {
     throw new ValidationError(
       'Invalid email format',
-      { email: normalizedEmail },
+      { email: normalizedEmail, errorCode: ErrorCode.INVALID_EMAIL },
       undefined,
       'Please enter a valid email address'
     );
@@ -75,7 +84,7 @@ export function validateBusinessEmail(email: string): void {
   if (isDisposableEmailDomain(domain)) {
     throw new ValidationError(
       'Disposable email addresses are not allowed',
-      { email: normalizedEmail, domain },
+      { email: normalizedEmail, domain, errorCode: ErrorCode.INVALID_EMAIL },
       undefined,
       'Please use a permanent email address'
     );
@@ -146,6 +155,20 @@ export function validateMagicLinkUrl(url: string): boolean {
 }
 
 /**
+ * Validate magic link URL format and throw error if invalid
+ */
+export function validateMagicLinkUrlStrict(url: string): void {
+  if (!validateMagicLinkUrl(url)) {
+    throw new ValidationError(
+      'Invalid magic link URL format',
+      { url, errorCode: ErrorCode.INVALID_TOKEN },
+      undefined,
+      'The magic link URL format is invalid'
+    );
+  }
+}
+
+/**
  * Extract token from magic link URL
  */
 export function extractTokenFromMagicLink(url: string): string | null {
@@ -196,6 +219,20 @@ export function validateRedirectUrl(redirectUrl: string): boolean {
     return isAllowed;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Validate redirect URL and throw error if invalid
+ */
+export function validateRedirectUrlStrict(redirectUrl: string): void {
+  if (!validateRedirectUrl(redirectUrl)) {
+    throw new ValidationError(
+      'Invalid redirect URL',
+      { redirectUrl, errorCode: ErrorCode.INVALID_INPUT },
+      undefined,
+      'The provided redirect URL is not allowed'
+    );
   }
 }
 

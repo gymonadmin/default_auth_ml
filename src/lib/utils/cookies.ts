@@ -1,6 +1,7 @@
 // src/lib/utils/cookies.ts
 import { RequestCookies } from 'next/dist/compiled/@edge-runtime/cookies';
 import { serialize } from 'cookie';
+import crypto from 'crypto';
 
 const SESSION_COOKIE_NAME = 'auth-session';
 
@@ -15,6 +16,26 @@ function getCookieSecret(): string {
     throw new Error('COOKIE_SECRET environment variable is required');
   }
   return secret;
+}
+
+function signValue(value: string): string {
+  const secret = getCookieSecret();
+  const sig = crypto.createHmac('sha256', secret).update(value).digest('hex');
+  return `${value}.${sig}`;
+}
+
+function verifySignedValue(signed: string): string | null {
+  const idx = signed.lastIndexOf('.');
+  if (idx === -1) return null;
+  const value = signed.slice(0, idx);
+  const sig = signed.slice(idx + 1);
+  const secret = getCookieSecret();
+  const expected = crypto.createHmac('sha256', secret).update(value).digest('hex');
+  // Use timing-safe compare
+  if (crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return value;
+  }
+  return null;
 }
 
 export interface SessionCookieOptions {
@@ -36,6 +57,9 @@ export function createSecureSessionCookie(
 ): string {
   const isProduction = process.env.NODE_ENV === 'production';
   
+  // Sign the token before storing in cookie so client-side tampering can be detected.
+  const signed = signValue(sessionToken);
+
   const cookieOptions = {
     httpOnly: options.httpOnly ?? true,
     secure: options.secure ?? isProduction,
@@ -47,7 +71,7 @@ export function createSecureSessionCookie(
     maxAge: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
   };
 
-  return serialize(SESSION_COOKIE_NAME, sessionToken, cookieOptions);
+  return serialize(SESSION_COOKIE_NAME, signed, cookieOptions);
 }
 
 /**
@@ -67,6 +91,16 @@ export function clearSessionCookie(options: SessionCookieOptions = {}): string {
   };
 
   return serialize(SESSION_COOKIE_NAME, '', cookieOptions);
+}
+
+// helper used by server-side cookie parsing middleware to extract the original token
+export function extractSessionTokenFromSignedCookie(signedValue?: string | null): string | null {
+  if (!signedValue) return null;
+  try {
+    return verifySignedValue(signedValue) || null;
+  } catch (err) {
+    return null;
+  }
 }
 
 /**

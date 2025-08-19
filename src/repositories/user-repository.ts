@@ -1,5 +1,5 @@
 // src/repositories/user-repository.ts
-import { Repository, DataSource, FindOptionsWhere } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { User } from '@/entities/user';
 import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
@@ -23,7 +23,7 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           email: email.toLowerCase(),
-          deletedAt: null,
+          deletedAt: IsNull(),
         },
         relations: ['profile'],
       });
@@ -36,7 +36,7 @@ export class UserRepository {
 
       return user;
     } catch (error) {
-      this.logger.error('Error finding user by email', error, { email });
+      this.logger.error('Error finding user by email', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find user by email',
@@ -56,7 +56,7 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           id,
-          deletedAt: null,
+          deletedAt: IsNull(),
         },
         relations: ['profile'],
       });
@@ -69,7 +69,7 @@ export class UserRepository {
 
       return user;
     } catch (error) {
-      this.logger.error('Error finding user by ID', error, { userId: id });
+      this.logger.error('Error finding user by ID', error instanceof Error ? error : new Error(String(error)), { userId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find user by ID',
@@ -102,7 +102,7 @@ export class UserRepository {
 
       return savedUser;
     } catch (error) {
-      this.logger.error('Error creating user', error, { email: userData.email });
+      this.logger.error('Error creating user', error instanceof Error ? error : new Error(String(error)), { email: userData.email });
       
       if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
         throw new DatabaseError(
@@ -153,7 +153,7 @@ export class UserRepository {
         throw error;
       }
       
-      this.logger.error('Error updating user', error, { userId: id });
+      this.logger.error('Error updating user', error instanceof Error ? error : new Error(String(error)), { userId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to update user',
@@ -190,7 +190,7 @@ export class UserRepository {
         throw error;
       }
       
-      this.logger.error('Error marking user as verified', error, { userId: id });
+      this.logger.error('Error marking user as verified', error instanceof Error ? error : new Error(String(error)), { userId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to mark user as verified',
@@ -226,7 +226,7 @@ export class UserRepository {
         throw error;
       }
       
-      this.logger.error('Error soft deleting user', error, { userId: id });
+      this.logger.error('Error soft deleting user', error instanceof Error ? error : new Error(String(error)), { userId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to soft delete user',
@@ -246,7 +246,7 @@ export class UserRepository {
       const count = await this.repository.count({
         where: {
           email: email.toLowerCase(),
-          deletedAt: null,
+          deletedAt: IsNull(),
         },
       });
 
@@ -258,7 +258,7 @@ export class UserRepository {
 
       return exists;
     } catch (error) {
-      this.logger.error('Error checking email existence', error, { email });
+      this.logger.error('Error checking email existence', error instanceof Error ? error : new Error(String(error)), { email });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to check email existence',
@@ -278,7 +278,7 @@ export class UserRepository {
       const users = await this.repository.find({
         where: {
           isVerified,
-          deletedAt: null,
+          deletedAt: IsNull(),
         },
         relations: ['profile'],
         take: limit,
@@ -294,7 +294,7 @@ export class UserRepository {
 
       return users;
     } catch (error) {
-      this.logger.error('Error finding users by verification status', error, { isVerified });
+      this.logger.error('Error finding users by verification status', error instanceof Error ? error : new Error(String(error)), { isVerified });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find users by verification status',

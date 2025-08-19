@@ -39,7 +39,7 @@ export class ProfileRepository {
 
       return profile;
     } catch (error) {
-      this.logger.error('Error finding profile by user ID', error, { userId });
+      this.logger.error('Error finding profile by user ID', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find profile by user ID',
@@ -69,7 +69,7 @@ export class ProfileRepository {
 
       return profile;
     } catch (error) {
-      this.logger.error('Error finding profile by ID', error, { profileId: id });
+      this.logger.error('Error finding profile by ID', error instanceof Error ? error : new Error(String(error)), { profileId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to find profile by ID',
@@ -106,7 +106,7 @@ export class ProfileRepository {
 
       return savedProfile;
     } catch (error) {
-      this.logger.error('Error creating profile', error, { userId: profileData.userId });
+      this.logger.error('Error creating profile', error instanceof Error ? error : new Error(String(error)), { userId: profileData.userId });
       
       if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
         throw new DatabaseError(
@@ -157,7 +157,7 @@ export class ProfileRepository {
         throw error;
       }
       
-      this.logger.error('Error updating profile', error, { profileId: id });
+      this.logger.error('Error updating profile', error instanceof Error ? error : new Error(String(error)), { profileId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to update profile',
@@ -202,7 +202,7 @@ export class ProfileRepository {
         throw error;
       }
       
-      this.logger.error('Error updating profile name', error, { profileId: id });
+      this.logger.error('Error updating profile name', error instanceof Error ? error : new Error(String(error)), { profileId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to update profile name',
@@ -237,7 +237,7 @@ export class ProfileRepository {
         throw error;
       }
       
-      this.logger.error('Error deleting profile', error, { profileId: id });
+      this.logger.error('Error deleting profile', error instanceof Error ? error : new Error(String(error)), { profileId: id });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to delete profile',
@@ -266,7 +266,7 @@ export class ProfileRepository {
 
       return exists;
     } catch (error) {
-      this.logger.error('Error checking profile existence', error, { userId });
+      this.logger.error('Error checking profile existence', error instanceof Error ? error : new Error(String(error)), { userId });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to check profile existence',
@@ -303,7 +303,7 @@ export class ProfileRepository {
 
       return profiles;
     } catch (error) {
-      this.logger.error('Error searching profiles by name', error, { query });
+      this.logger.error('Error searching profiles by name', error instanceof Error ? error : new Error(String(error)), { query });
       throw new DatabaseError(
         ErrorCode.DATABASE_ERROR,
         'Failed to search profiles by name',

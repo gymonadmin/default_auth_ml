@@ -1,4 +1,5 @@
 // src/services/auth-service.ts
+
 import { DataSource } from 'typeorm';
 import { User } from '@/entities/user';
 import { Profile } from '@/entities/profile';
@@ -12,8 +13,17 @@ import { MagicSigninTokenRepository } from '@/repositories/magic-signin-token-re
 import { AuditLogRepository } from '@/repositories/audit-log-repository';
 import { EmailService } from '@/services/email-service';
 import { RateLimitService } from '@/services/rate-limit-service';
-import { generateMagicLinkToken, generateSessionToken, hashToken, verifyTokenHash } from '@/lib/utils/crypto';
-import { generateMagicLinkUrl, normalizeEmail, validateBusinessEmail } from '@/lib/utils/email';
+import { 
+  generateMagicLinkToken, 
+  generateSessionToken, 
+  hashToken, 
+  verifyTokenHash 
+} from '@/lib/utils/crypto';
+import { 
+  generateMagicLinkUrl, 
+  normalizeEmail, 
+  validateBusinessEmail 
+} from '@/lib/utils/email';
 import { createExpirationDate, hasExpired } from '@/lib/utils/time';
 import { AuthError, ValidationError, ErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
@@ -99,11 +109,11 @@ export class AuthService {
    */
   private loadConfiguration(): AuthServiceConfig {
     return {
-      magicLinkTTLSeconds: parseInt(process.env.MAGIC_LINK_TTL_SECONDS || '900'), // 15 minutes
-      sessionTTLSeconds: parseInt(process.env.SESSION_TTL_SECONDS || '604800'), // 7 days
+      magicLinkTTLSeconds: parseInt(process.env.MAGIC_LINK_TTL_SECONDS || '900', 10), // 15 minutes
+      sessionTTLSeconds: parseInt(process.env.SESSION_TTL_SECONDS || '604800', 10), // 7 days
       maxTokensPerEmail: 3, // Maximum active tokens per email
-      rateLimitWindow: parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_SECONDS || '900'), // 15 minutes
-      rateLimitCount: parseInt(process.env.RATE_LIMIT_AUTH_COUNT || '3'), // 3 attempts per window
+      rateLimitWindow: parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_SECONDS || '900', 10), // 15 minutes
+      rateLimitCount: parseInt(process.env.RATE_LIMIT_AUTH_COUNT || '3', 10), // 3 attempts per window
     };
   }
 
@@ -140,7 +150,7 @@ export class AuthService {
 
       // Generate magic link token
       const magicToken = generateMagicLinkToken();
-      const tokenHash = hashToken(magicToken);
+      const tokenHash = await hashToken(magicToken);
       const expiresAt = createExpirationDate(this.config.magicLinkTTLSeconds);
 
       // Create magic link URL
@@ -197,11 +207,11 @@ export class AuthService {
           email: normalizedEmail,
           tokenHash,
           expiresAt,
-          ipAddress: request.ipAddress,
-          userAgent: request.userAgent,
-          country: request.country,
-          city: request.city,
-          redirectUrl: request.redirectUrl,
+          ipAddress: request.ipAddress || undefined,
+          userAgent: request.userAgent || undefined,
+          country: request.country || undefined,
+          city: request.city || undefined,
+          redirectUrl: request.redirectUrl || undefined,
         });
 
         // Log audit event
@@ -216,10 +226,10 @@ export class AuthService {
               hasRedirectUrl: !!request.redirectUrl,
               tokenLength: magicToken.length,
             },
-            ipAddress: request.ipAddress,
-            userAgent: request.userAgent,
-            country: request.country,
-            city: request.city,
+            ipAddress: request.ipAddress || undefined,
+            userAgent: request.userAgent || undefined,
+            country: request.country || undefined,
+            city: request.city || undefined,
             correlationId: this.logger['correlationId'],
           }
         );
@@ -255,7 +265,7 @@ export class AuthService {
     } catch (error) {
       const duration = Date.now() - startTime;
       
-      this.logger.error('Failed to send magic link', error, {
+      this.logger.error('Failed to send magic link', error instanceof Error ? error : new Error(String(error)), {
         email: request.email,
         duration,
       });
@@ -274,7 +284,7 @@ export class AuthService {
           }
         );
       } catch (auditError) {
-        this.logger.error('Failed to log audit failure', auditError);
+        this.logger.error('Failed to log audit failure', auditError instanceof Error ? auditError : new Error(String(auditError)));
       }
 
       throw error;
@@ -295,7 +305,7 @@ export class AuthService {
       });
 
       // Find and validate token
-      const tokenHash = hashToken(request.token);
+      const tokenHash = await hashToken(request.token);
       const magicToken = await this.tokenRepo.findByTokenHash(tokenHash);
 
       if (!magicToken) {
@@ -309,22 +319,45 @@ export class AuthService {
         );
       }
 
-      // Check if token is valid (not used and not expired)
-      if (!magicToken.isValid) {
-        const reason = magicToken.isUsed ? 'already used' : 'expired';
-        
+      // Additional token verification using timing-safe comparison
+      if (!verifyTokenHash(request.token, magicToken.tokenHash)) {
         throw new AuthError(
-          magicToken.isUsed ? ErrorCode.TOKEN_ALREADY_USED : ErrorCode.TOKEN_EXPIRED,
-          `Magic link ${reason}`,
+          ErrorCode.INVALID_TOKEN,
+          'Invalid magic link token',
+          401,
+          { tokenId: magicToken.id },
+          this.logger['correlationId'],
+          'The magic link is invalid. Please request a new one.'
+        );
+      }
+
+      // Check if token has expired
+      if (hasExpired(magicToken.expiresAt)) {
+        throw new AuthError(
+          ErrorCode.TOKEN_EXPIRED,
+          'Magic link expired',
           401,
           { 
             tokenId: magicToken.id,
-            isUsed: magicToken.isUsed,
-            isExpired: magicToken.isExpired,
             expiresAt: magicToken.expiresAt.toISOString(),
           },
           this.logger['correlationId'],
-          `The magic link has ${reason}. Please request a new one.`
+          'The magic link has expired. Please request a new one.'
+        );
+      }
+
+      // Check if token is already used
+      if (magicToken.isUsed) {
+        throw new AuthError(
+          ErrorCode.TOKEN_ALREADY_USED,
+          'Magic link already used',
+          401,
+          { 
+            tokenId: magicToken.id,
+            usedAt: magicToken.usedAt?.toISOString(),
+          },
+          this.logger['correlationId'],
+          'The magic link has already been used. Please request a new one.'
         );
       }
 
@@ -364,8 +397,8 @@ export class AuthService {
 
         if (isNewUser) {
           // Find the unverified user and mark as verified
-          user = await transactionUserRepo.findByEmail(magicToken.email);
-          if (!user) {
+          const foundUser = await transactionUserRepo.findByEmail(magicToken.email);
+          if (!foundUser) {
             throw new AuthError(
               ErrorCode.RECORD_NOT_FOUND,
               'User account not found',
@@ -376,16 +409,30 @@ export class AuthService {
           }
 
           // Mark user as verified
-          user = await transactionUserRepo.markAsVerified(user.id);
+          user = await transactionUserRepo.markAsVerified(foundUser.id);
           
-          // Create profile if provided
-          if (request.profile) {
-            await transactionProfileRepo.create({
-              userId: user.id,
-              firstName: request.profile.firstName,
-              lastName: request.profile.lastName,
-            });
+          // Validate and create profile if provided (new users should provide profile)
+          if (!request.profile?.firstName || !request.profile?.lastName) {
+            throw new ValidationError(
+              'Profile details are required for new accounts',
+              { 
+                email: user.email,
+                missingFields: {
+                  firstName: !request.profile?.firstName,
+                  lastName: !request.profile?.lastName,
+                }
+              },
+              this.logger['correlationId'],
+              'Please provide your first and last name to complete account setup.'
+            );
           }
+
+          // Create profile
+          await transactionProfileRepo.create({
+            userId: user.id,
+            firstName: request.profile.firstName,
+            lastName: request.profile.lastName,
+          });
 
           // Link token to user
           await transactionTokenRepo.linkToUser(magicToken.id, user.id);
@@ -393,13 +440,13 @@ export class AuthService {
           this.logger.info('New user verified and profile created', {
             userId: user.id,
             email: user.email,
-            hasProfile: !!request.profile,
+            hasProfile: true,
           });
 
         } else {
           // Get existing verified user
-          user = await transactionUserRepo.findById(magicToken.userId!);
-          if (!user) {
+          const foundUser = await transactionUserRepo.findById(magicToken.userId!);
+          if (!foundUser) {
             throw new AuthError(
               ErrorCode.RECORD_NOT_FOUND,
               'User account not found',
@@ -409,15 +456,17 @@ export class AuthService {
             );
           }
 
-          if (!user.isVerified) {
+          if (!foundUser.isVerified) {
             throw new AuthError(
               ErrorCode.ACCOUNT_NOT_VERIFIED,
               'Account not verified',
               401,
-              { userId: user.id },
+              { userId: foundUser.id },
               this.logger['correlationId']
             );
           }
+
+          user = foundUser;
         }
 
         // Mark token as used
@@ -425,17 +474,17 @@ export class AuthService {
 
         // Create new session
         const sessionToken = generateSessionToken();
-        const sessionTokenHash = hashToken(sessionToken);
+        const sessionTokenHash = await hashToken(sessionToken);
         const sessionExpiresAt = createExpirationDate(this.config.sessionTTLSeconds);
 
         const session = await transactionSessionRepo.create({
           userId: user.id,
           tokenHash: sessionTokenHash,
           expiresAt: sessionExpiresAt,
-          ipAddress: request.ipAddress,
-          userAgent: request.userAgent,
-          country: request.country,
-          city: request.city,
+          ipAddress: request.ipAddress || undefined,
+          userAgent: request.userAgent || undefined,
+          country: request.country || undefined,
+          city: request.city || undefined,
         });
 
         // Log audit events
@@ -468,10 +517,10 @@ export class AuthService {
               isNewUser,
               sessionId: session.id,
             },
-            ipAddress: request.ipAddress,
-            userAgent: request.userAgent,
-            country: request.country,
-            city: request.city,
+            ipAddress: request.ipAddress || undefined,
+            userAgent: request.userAgent || undefined,
+            country: request.country || undefined,
+            city: request.city || undefined,
             correlationId: this.logger['correlationId'],
           }
         );
@@ -485,8 +534,8 @@ export class AuthService {
               sessionId: session.id,
               expiresAt: session.expiresAt.toISOString(),
             },
-            ipAddress: request.ipAddress,
-            userAgent: request.userAgent,
+            ipAddress: request.ipAddress || undefined,
+            userAgent: request.userAgent || undefined,
             correlationId: this.logger['correlationId'],
           }
         );
@@ -512,20 +561,20 @@ export class AuthService {
         user: result.user,
         session: result.session,
         isNewUser,
-        redirectUrl: magicToken.redirectUrl,
+        redirectUrl: magicToken.redirectUrl || undefined,
       };
 
     } catch (error) {
       const duration = Date.now() - startTime;
       
-      this.logger.error('Magic link verification failed', error, {
+      this.logger.error('Magic link verification failed', error instanceof Error ? error : new Error(String(error)), {
         tokenLength: request.token.length,
         duration,
       });
 
       // Log audit failure for specific email if we can determine it
       try {
-        const tokenHash = hashToken(request.token);
+        const tokenHash = await hashToken(request.token);
         const magicToken = await this.tokenRepo.findByTokenHash(tokenHash);
         
         if (magicToken) {
@@ -534,7 +583,7 @@ export class AuthService {
             AuditEvent.SIGNIN_FAILED,
             error instanceof Error ? error.message : 'Unknown error',
             {
-              userId: magicToken.userId,
+              userId: magicToken.userId || undefined,
               context: { 
                 method: 'magic_link',
                 error: error instanceof Error ? error.name : 'UnknownError',
@@ -547,7 +596,7 @@ export class AuthService {
           );
         }
       } catch (auditError) {
-        this.logger.error('Failed to log audit failure', auditError);
+        this.logger.error('Failed to log audit failure', auditError instanceof Error ? auditError : new Error(String(auditError)));
       }
 
       throw error;
@@ -619,7 +668,7 @@ export class AuthService {
         tokenLength: sessionToken.length,
       });
 
-      const tokenHash = hashToken(sessionToken);
+      const tokenHash = await hashToken(sessionToken);
       const session = await this.sessionRepo.findByTokenHash(tokenHash);
 
       if (!session || !session.isValid) {
@@ -628,6 +677,21 @@ export class AuthService {
           isValid: session?.isValid,
           isExpired: session?.isExpired,
           isActive: session?.isActive,
+        });
+        return null;
+      }
+
+      // Additional validation using timing-safe comparison
+      if (!verifyTokenHash(sessionToken, session.tokenHash)) {
+        this.logger.debug('Session token verification failed');
+        return null;
+      }
+
+      // Check if session has expired using utility function
+      if (hasExpired(session.expiresAt)) {
+        this.logger.debug('Session has expired', {
+          sessionId: session.id,
+          expiresAt: session.expiresAt.toISOString(),
         });
         return null;
       }
@@ -647,7 +711,7 @@ export class AuthService {
       };
 
     } catch (error) {
-      this.logger.error('Session validation error', error);
+      this.logger.error('Session validation error', error instanceof Error ? error : new Error(String(error)));
       return null;
     }
   }
@@ -662,7 +726,7 @@ export class AuthService {
         ipAddress,
       });
 
-      const tokenHash = hashToken(sessionToken);
+      const tokenHash = await hashToken(sessionToken);
       const session = await this.sessionRepo.findByTokenHash(tokenHash);
 
       if (session) {
@@ -677,8 +741,8 @@ export class AuthService {
             context: {
               sessionId: session.id,
             },
-            ipAddress,
-            userAgent,
+            ipAddress: ipAddress || undefined,
+            userAgent: userAgent || undefined,
             correlationId: this.logger['correlationId'],
           }
         );
@@ -695,7 +759,7 @@ export class AuthService {
       }
 
     } catch (error) {
-      this.logger.error('Sign out error', error);
+      this.logger.error('Sign out error', error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
   }
@@ -720,7 +784,73 @@ export class AuthService {
       return { expiredTokens, expiredSessions };
 
     } catch (error) {
-      this.logger.error('Cleanup error', error);
+      this.logger.error('Cleanup error', error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+  }
+
+  /**
+   * Get user profile by user ID (using Profile entity)
+   */
+  async getUserProfile(userId: string): Promise<Profile | null> {
+    try {
+      this.logger.debug('Getting user profile', { userId });
+      
+      const profile = await this.profileRepo.findByUserId(userId);
+      
+      this.logger.debug('User profile retrieved', { 
+        userId, 
+        found: !!profile,
+        profileId: profile?.id 
+      });
+      
+      return profile;
+    } catch (error) {
+      this.logger.error('Error getting user profile', error instanceof Error ? error : new Error(String(error)), { userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get magic signin token details (using MagicSigninToken entity)
+   */
+  async getMagicTokenDetails(tokenId: string): Promise<MagicSigninToken | null> {
+    try {
+      this.logger.debug('Getting magic token details', { tokenId });
+      
+      const token = await this.tokenRepo.findById(tokenId);
+      
+      this.logger.debug('Magic token details retrieved', { 
+        tokenId, 
+        found: !!token,
+        isUsed: token?.isUsed,
+        isValid: token?.isValid 
+      });
+      
+      return token;
+    } catch (error) {
+      this.logger.error('Error getting magic token details', error instanceof Error ? error : new Error(String(error)), { tokenId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get audit logs for user (using AuditLog entity)
+   */
+  async getUserAuditLogs(userId: string, limit: number = 10): Promise<AuditLog[]> {
+    try {
+      this.logger.debug('Getting user audit logs', { userId, limit });
+      
+      const auditLogs = await this.auditRepo.findRecentForUser(userId, limit);
+      
+      this.logger.debug('User audit logs retrieved', { 
+        userId, 
+        count: auditLogs.length 
+      });
+      
+      return auditLogs;
+    } catch (error) {
+      this.logger.error('Error getting user audit logs', error instanceof Error ? error : new Error(String(error)), { userId });
       throw error;
     }
   }
