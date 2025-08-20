@@ -107,14 +107,19 @@ export function buildCSPHeader(nonce: string): string {
 }
 
 /**
- * CSP middleware for Next.js API routes
+ * CSP middleware for Next.js API routes and pages
  */
-export function setCSPHeaders(headers: Headers, nonce?: string): void {
-  const cspNonce = nonce || generateCSPNonce();
+export function setCSPHeaders(headers: Headers, correlationId?: string, providedNonce?: string): void {
+  const cspNonce = providedNonce || generateCSPNonce();
   headers.set('Content-Security-Policy', buildCSPHeader(cspNonce));
   
   // Set nonce in a custom header for client access if needed
   headers.set('X-CSP-Nonce', cspNonce);
+  
+  // Add correlation ID if provided
+  if (correlationId) {
+    headers.set('X-Correlation-ID', correlationId);
+  }
 }
 
 /**

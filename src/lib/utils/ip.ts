@@ -2,37 +2,81 @@
 import { NextRequest } from 'next/server';
 
 /**
- * Extract client IP address from request headers
+ * Extract client IP address from request headers (enhanced multi-header approach)
  */
-export function getClientIP(request: NextRequest): string | null {
-  // Check common proxy headers in order of preference
-  const headers = [
-    'x-forwarded-for',
-    'x-real-ip',
-    'x-client-ip',
-    'x-forwarded',
-    'x-cluster-client-ip',
-    'forwarded-for',
-    'forwarded',
-  ];
-
-  for (const header of headers) {
-    const value = request.headers.get(header);
-    if (value) {
-      // x-forwarded-for can contain multiple IPs, take the first one
-      const ip = value.split(',')[0].trim();
-      if (isValidIP(ip)) {
-        return ip;
-      }
+export function getClientIP(request: NextRequest): string {
+  // Check various headers for real IP (useful behind proxies)
+  const forwarded = request.headers.get('x-forwarded-for');
+  const realIP = request.headers.get('x-real-ip');
+  const remoteAddr = request.headers.get('x-remote-addr');
+  const clientIP = request.headers.get('x-client-ip');
+  const clusterClientIP = request.headers.get('x-cluster-client-ip');
+  const forwardedHeader = request.headers.get('forwarded');
+  
+  // x-forwarded-for can contain multiple IPs, take the first one (original client)
+  if (forwarded) {
+    const ip = forwarded.split(',')[0].trim();
+    if (isValidIP(ip)) {
+      return ip;
     }
   }
-
+  
+  // Check other proxy headers in order of preference
+  const headers = [realIP, clientIP, clusterClientIP, remoteAddr];
+  
+  for (const header of headers) {
+    if (header && isValidIP(header.trim())) {
+      return header.trim();
+    }
+  }
+  
+  // Parse Forwarded header (RFC 7239)
+  if (forwardedHeader) {
+    const forwardedIP = parseForwardedHeader(forwardedHeader);
+    if (forwardedIP && isValidIP(forwardedIP)) {
+      return forwardedIP;
+    }
+  }
+  
   // Fallback to connection remote address
   const remoteAddress = request.ip;
   if (remoteAddress && isValidIP(remoteAddress)) {
     return remoteAddress;
   }
+  
+  return 'unknown';
+}
 
+/**
+ * Parse RFC 7239 Forwarded header
+ */
+function parseForwardedHeader(forwarded: string): string | null {
+  try {
+    // Look for for= parameter in Forwarded header
+    const forMatch = forwarded.match(/for=([^;,\s]+)/i);
+    if (forMatch) {
+      let ip = forMatch[1];
+      // Remove quotes and brackets if present
+      ip = ip.replace(/["\[\]]/g, '');
+      // Handle IPv6 notation
+      if (ip.includes(':') && !ip.includes('.')) {
+        // IPv6 - extract IP from [ip]:port format
+        const ipv6Match = ip.match(/^([^:]+)/);
+        if (ipv6Match) {
+          return ipv6Match[1];
+        }
+      } else {
+        // IPv4 - extract IP from ip:port format
+        const ipv4Match = ip.match(/^([^:]+)/);
+        if (ipv4Match) {
+          return ipv4Match[1];
+        }
+      }
+      return ip;
+    }
+  } catch (error) {
+    // Ignore parsing errors
+  }
   return null;
 }
 

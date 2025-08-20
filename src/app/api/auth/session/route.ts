@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/services/auth-service';
 import { handleApiError } from '@/lib/errors/error-handler';
-import { generateCorrelationId, getCorrelationIdFromHeaders } from '@/lib/utils/correlation-id';
+import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
 import { getSessionTokenFromCookies, clearSessionCookie } from '@/lib/utils/cookies';
@@ -10,7 +10,8 @@ import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function GET(request: NextRequest) {
-  const correlationId = getCorrelationIdFromHeaders(request.headers) || generateCorrelationId();
+  // Get correlation ID from middleware or generate new one
+  const correlationId = request.headers.get('X-Correlation-ID') || generateCorrelationId();
   const logger = new Logger(correlationId);
   
   try {
@@ -93,10 +94,10 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.json(responseData);
     
     // Add correlation ID header
-    response.headers.set('x-correlation-id', correlationId);
+    response.headers.set('X-Correlation-ID', correlationId);
     
     // Add security headers including CSP
-    setCSPHeaders(response.headers);
+    setCSPHeaders(response.headers, correlationId);
     
     return response;
 
@@ -113,9 +114,6 @@ export async function GET(request: NextRequest) {
       const clearCookieHeader = clearSessionCookie();
       errorResponse.headers.set('Set-Cookie', clearCookieHeader);
     }
-    
-    // Add security headers to error responses
-    setCSPHeaders(errorResponse.headers);
     
     return errorResponse;
   }

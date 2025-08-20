@@ -205,5 +205,13 @@ export class ErrorHandler {
  * Utility function for handling errors in API routes
  */
 export function handleApiError(error: unknown, correlationId?: string): NextResponse<ErrorResponse> {
-  return ErrorHandler.forRequest(correlationId).handleError(error);
+  const errorHandler = ErrorHandler.forRequest(correlationId);
+  const response = errorHandler.handleError(error);
+  
+  // Ensure correlation ID is in headers if provided
+  if (correlationId) {
+    response.headers.set('X-Correlation-ID', correlationId);
+  }
+  
+  return response;
 }

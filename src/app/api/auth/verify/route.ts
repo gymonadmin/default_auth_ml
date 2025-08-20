@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyMagicLinkSchema } from '@/lib/validation/schemas';
 import { AuthService } from '@/services/auth-service';
 import { handleApiError } from '@/lib/errors/error-handler';
-import { generateCorrelationId, getCorrelationIdFromHeaders } from '@/lib/utils/correlation-id';
+import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { getClientIP } from '@/lib/utils/ip';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
@@ -11,7 +11,8 @@ import { createSecureSessionCookie, clearSessionCookie } from '@/lib/utils/cooki
 import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function POST(request: NextRequest) {
-  const correlationId = getCorrelationIdFromHeaders(request.headers) || generateCorrelationId();
+  // Get correlation ID from middleware or generate new one
+  const correlationId = request.headers.get('X-Correlation-ID') || generateCorrelationId();
   const logger = new Logger(correlationId);
   
   try {
@@ -31,8 +32,8 @@ export async function POST(request: NextRequest) {
       hasProfile: !!validatedData.profile,
     });
 
-    // Extract client information
-    const ipAddress = getClientIP(request);
+    // Extract client information from middleware headers or fallback
+    const ipAddress = request.headers.get('X-Client-IP') || getClientIP(request);
     const userAgent = request.headers.get('user-agent');
     
     // Initialize database connection
@@ -94,10 +95,10 @@ export async function POST(request: NextRequest) {
     response.headers.set('Set-Cookie', cookieHeader);
 
     // Add correlation ID header
-    response.headers.set('x-correlation-id', correlationId);
+    response.headers.set('X-Correlation-ID', correlationId);
     
     // Add security headers including CSP
-    setCSPHeaders(response.headers);
+    setCSPHeaders(response.headers, correlationId);
     
     return response;
 
@@ -110,9 +111,6 @@ export async function POST(request: NextRequest) {
     const errorResponse = handleApiError(error, correlationId);
     const clearCookieHeader = clearSessionCookie();
     errorResponse.headers.set('Set-Cookie', clearCookieHeader);
-    
-    // Add security headers to error responses
-    setCSPHeaders(errorResponse.headers);
     
     return errorResponse;
   }
