@@ -77,8 +77,13 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-   logger.error('Magic link send request failed', error instanceof Error ? error : new Error(String(error)), {
+    logger.error('Magic link send request failed', {
       correlationId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { message: String(error) },
     });
 
     return handleApiError(error, correlationId);

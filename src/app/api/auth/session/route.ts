@@ -1,11 +1,11 @@
 // src/app/api/auth/session/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/services/auth-service';
+import { SessionService } from '@/services/session-service';
 import { handleApiError } from '@/lib/errors/error-handler';
 import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
-import { getSessionTokenFromCookies, clearSessionCookie } from '@/lib/utils/cookies';
+import { getSessionTokenFromCookies, clearSessionCookie, createSecureSessionCookie } from '@/lib/utils/cookies';
 import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 import { setCSPHeaders } from '@/lib/utils/csp';
 
@@ -40,13 +40,13 @@ export async function GET(request: NextRequest) {
     // Initialize database connection
     const dataSource = await initializeDatabase();
     
-    // Create auth service instance
-    const authService = new AuthService(dataSource, correlationId);
+    // Create session service instance
+    const sessionService = new SessionService(dataSource, correlationId);
 
     // Validate session
-    const sessionData = await authService.validateSession(sessionToken);
+    const sessionData = await sessionService.validateSession(sessionToken);
     
-    if (!sessionData) {
+    if (!sessionData || !sessionData.isValid) {
       logger.debug('Invalid or expired session token');
       
       throw new AuthError(
@@ -59,11 +59,31 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Check if session should be extended
+    let updatedSession = sessionData.session;
+    if (sessionData.shouldExtend) {
+      logger.debug('Extending session due to threshold', {
+        sessionId: sessionData.session.id,
+        timeUntilExpiry: sessionData.session.timeUntilExpiry,
+      });
+      
+      try {
+        updatedSession = await sessionService.extendSession(sessionData.session.id);
+      } catch (error) {
+        // Log but don't fail the request if extension fails
+        logger.warn('Failed to extend session', {
+          sessionId: sessionData.session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     logger.debug('Session validated successfully', {
       userId: sessionData.user.id,
       sessionId: sessionData.session.id,
       isActive: sessionData.session.isActive,
-      expiresAt: sessionData.session.expiresAt,
+      expiresAt: updatedSession.expiresAt,
+      wasExtended: updatedSession.id !== sessionData.session.id,
     });
 
     // Return user and session data
@@ -83,15 +103,26 @@ export async function GET(request: NextRequest) {
           } : null,
         },
         session: {
-          id: sessionData.session.id,
-          expiresAt: sessionData.session.expiresAt.toISOString(),
-          lastAccessedAt: sessionData.session.lastAccessedAt?.toISOString(),
-          isActive: sessionData.session.isActive,
+          id: updatedSession.id,
+          expiresAt: updatedSession.expiresAt.toISOString(),
+          lastAccessedAt: updatedSession.lastAccessedAt?.toISOString(),
+          isActive: updatedSession.isActive,
         },
       },
     };
 
     const response = NextResponse.json(responseData);
+    
+    // Update session cookie if it was extended
+    if (sessionData.shouldExtend && updatedSession.expiresAt !== sessionData.session.expiresAt) {
+      const cookieHeader = createSecureSessionCookie(sessionToken, updatedSession.expiresAt);
+      response.headers.set('Set-Cookie', cookieHeader);
+      
+      logger.debug('Session cookie updated with new expiration', {
+        sessionId: updatedSession.id,
+        newExpiresAt: updatedSession.expiresAt,
+      });
+    }
     
     // Add correlation ID header
     response.headers.set('X-Correlation-ID', correlationId);
@@ -102,8 +133,13 @@ export async function GET(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Session validation failed', error instanceof Error ? error : new Error(String(error)), {
+    logger.error('Session validation failed', {
       correlationId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { message: String(error) },
     });
 
     // Clear session cookie on validation failure

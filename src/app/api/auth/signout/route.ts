@@ -1,12 +1,13 @@
 // src/app/api/auth/signout/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/services/auth-service';
+import { SessionService } from '@/services/session-service';
 import { handleApiError } from '@/lib/errors/error-handler';
 import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { getClientIP } from '@/lib/utils/ip';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
 import { getSessionTokenFromCookies, clearSessionCookie } from '@/lib/utils/cookies';
+import { hashToken } from '@/lib/utils/crypto';
 import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function POST(request: NextRequest) {
@@ -52,19 +53,34 @@ export async function POST(request: NextRequest) {
     // Initialize database connection
     const dataSource = await initializeDatabase();
     
-    // Create auth service instance
-    const authService = new AuthService(dataSource, correlationId);
+    // Create session service instance
+    const sessionService = new SessionService(dataSource, correlationId);
 
-    // Sign out user and revoke session
-    await authService.signOut(
-      sessionToken,
-      ipAddress || undefined,
-      userAgent || undefined
-    );
+    // Find session by token hash to get session ID
+    const tokenHash = await hashToken(sessionToken);
+    const sessionData = await sessionService.validateSession(sessionToken);
+    
+    if (sessionData && sessionData.isValid) {
+      // Revoke the specific session with client context
+      await sessionService.revokeSession(
+        sessionData.session.id,
+        `User initiated signout from ${ipAddress || 'unknown IP'} using ${userAgent || 'unknown user agent'}`
+      );
 
-    logger.info('User signed out successfully', {
-      sessionTokenLength: sessionToken.length,
-    });
+      logger.info('User signed out successfully', {
+        sessionId: sessionData.session.id,
+        userId: sessionData.user.id,
+        email: sessionData.user.email,
+        ipAddress,
+        userAgent,
+      });
+    } else {
+      logger.debug('Session not found or already invalid during signout', {
+        tokenHashPrefix: tokenHash.substring(0, 8),
+        ipAddress,
+        userAgent,
+      });
+    }
 
     // Create success response
     const response = NextResponse.json({
@@ -85,8 +101,13 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Sign out request failed', error instanceof Error ? error : new Error(String(error)), {
+    logger.error('Sign out request failed', {
       correlationId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { message: String(error) },
     });
 
     // Even on error, clear the session cookie

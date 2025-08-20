@@ -103,8 +103,13 @@ export async function POST(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Magic link verification request failed', error instanceof Error ? error : new Error(String(error)), {
+    logger.error('Magic link verification request failed', {
       correlationId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { message: String(error) },
     });
 
     // Clear any existing session cookie on error
