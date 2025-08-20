@@ -11,7 +11,12 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/lib/config/database.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/lib/config/database.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/lib/config/database.ts",
-    "db:seed": "tsx src/scripts/seed.ts"
+    "db:seed": "tsx src/scripts/seed.ts",
+    "test:phase2": "tsx tests/run-phase2.ts",
+    "test:user-entity": "tsx tests/user-entity.test.ts",
+    "test:profile-entity": "tsx tests/profile-entity.test.ts",
+    "test:user-repository": "tsx tests/user-repository.test.ts",
+    "test:session-repository": "tsx tests/session-repository.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

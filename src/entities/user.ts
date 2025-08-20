@@ -89,7 +89,7 @@ export class User {
   }
 
   get isActive(): boolean {
-    return this.isVerified && !this.isDeleted;
+    return this.isVerified === true && (this.deletedAt === null || this.deletedAt === undefined);
   }
 
   // Methods

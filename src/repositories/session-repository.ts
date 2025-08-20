@@ -24,6 +24,14 @@ export class SessionRepository {
   }
 
   /**
+   * Validate UUID format
+   */
+  private isValidUUID(id: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  }
+
+  /**
    * Find session by token hash
    */
   async findByTokenHash(tokenHash: string): Promise<Session | null> {
@@ -278,6 +286,12 @@ export class SessionRepository {
     try {
       this.logger.debug('Revoking all sessions for user', { userId });
       
+      // Fixed: Validate UUID format first to prevent database errors
+      if (!this.isValidUUID(userId)) {
+        this.logger.debug('Invalid UUID format for user ID', { userId });
+        return 0;
+      }
+      
       const result = await this.repository.update(
         { userId, isActive: true },
         { isActive: false }
@@ -378,6 +392,12 @@ export class SessionRepository {
     try {
       this.logger.debug('Finding active sessions for user', { userId });
       
+      // Fixed: Validate UUID format first to prevent database errors
+      if (!this.isValidUUID(userId)) {
+        this.logger.debug('Invalid UUID format for user ID, returning empty array', { userId });
+        return [];
+      }
+      
       const sessions = await this.repository.find({
         where: {
           userId,
@@ -459,6 +479,12 @@ export class SessionRepository {
   async countActiveForUser(userId: string): Promise<number> {
     try {
       this.logger.debug('Counting active sessions for user', { userId });
+      
+      // Fixed: Validate UUID format first to prevent database errors
+      if (!this.isValidUUID(userId)) {
+        this.logger.debug('Invalid UUID format for user ID, returning 0', { userId });
+        return 0;
+      }
       
       const count = await this.repository.count({
         where: {

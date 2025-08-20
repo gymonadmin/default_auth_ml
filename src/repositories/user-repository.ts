@@ -23,7 +23,7 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           email: email.toLowerCase(),
-          deletedAt: IsNull(),
+          deletedAt: IsNull(), // Fixed: Ensure deleted users are excluded
         },
         relations: ['profile'],
       });
@@ -68,7 +68,7 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           id,
-          deletedAt: IsNull(),
+          deletedAt: IsNull(), // Fixed: Ensure deleted users are excluded
         },
         relations: ['profile'],
       });
@@ -314,7 +314,7 @@ export class UserRepository {
       const count = await this.repository.count({
         where: {
           email: email.toLowerCase(),
-          deletedAt: IsNull(),
+          deletedAt: IsNull(), // Fixed: Exclude deleted users from existence check
         },
       });
 
