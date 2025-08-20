@@ -21,9 +21,16 @@ export interface EmailServiceConfig {
   from: string;
 }
 
+export interface RetryConfig {
+  maxRetries: number;
+  baseDelay: number; // milliseconds
+  maxDelay: number; // milliseconds
+}
+
 export class EmailService {
   private transporter: nodemailer.Transporter;
   private config: EmailServiceConfig;
+  private retryConfig: RetryConfig;
   private logger: Logger;
   private correlationId: string;
 
@@ -33,6 +40,13 @@ export class EmailService {
     
     // Validate required environment variables
     this.config = this.validateConfig();
+    
+    // Configure retry settings
+    this.retryConfig = {
+      maxRetries: 3,
+      baseDelay: 1000, // 1 second
+      maxDelay: 10000, // 10 seconds
+    };
     
     // Create transporter
     this.transporter = this.createTransporter();
@@ -45,6 +59,7 @@ export class EmailService {
         user: this.config.user,
         from: this.config.from,
       },
+      retryConfig: this.retryConfig,
     });
   }
 
@@ -180,71 +195,111 @@ export class EmailService {
   }
 
   /**
-   * Send magic link email
+   * Send magic link email with retry logic
    *
    * Throws ServiceError(ErrorCode.EMAIL_SERVICE_ERROR, ...) on failure so callers
    * can reliably detect email delivery problems.
    */
   async sendMagicLinkEmail(data: MagicLinkEmailData): Promise<void> {
-    try {
-      this.logger.debug('Sending magic link email', {
-        email: data.email,
-        isNewUser: data.isNewUser,
-        expiresInMinutes: data.expiresInMinutes,
-        hasRedirectUrl: !!data.redirectUrl,
-        correlationId: this.correlationId,
-      });
+    const { subject, html, text } = this.generateMagicLinkEmailContent(data);
 
-      const { subject, html, text } = this.generateMagicLinkEmailContent(data);
+    const mailOptions = {
+      from: `"${this.getFromName()}" <${this.config.from}>`,
+      to: data.email,
+      subject,
+      text,
+      html,
+      // Email headers for better deliverability
+      headers: {
+        'X-Priority': '1',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high',
+        'X-Correlation-ID': this.correlationId,
+      },
+      // Tracking
+      messageId: this.generateMessageId(),
+    };
 
-      const mailOptions = {
-        from: `"${this.getFromName()}" <${this.config.from}>`,
-        to: data.email,
-        subject,
-        text,
-        html,
-        // Email headers for better deliverability
-        headers: {
-          'X-Priority': '1',
-          'X-MSMail-Priority': 'High',
-          'Importance': 'high',
-          'X-Correlation-ID': this.correlationId,
-        },
-        // Tracking
-        messageId: this.generateMessageId(),
-      };
+    await this.sendWithRetry(mailOptions, data.email);
+  }
 
-      const info = await this.transporter.sendMail(mailOptions);
+  /**
+   * Send email with retry logic
+   */
+  private async sendWithRetry(mailOptions: any, email: string): Promise<void> {
+    let lastError: Error | null = null;
 
-      this.logger.info('Magic link email sent successfully', {
-        email: data.email,
-        messageId: info.messageId,
-        response: info.response,
-        correlationId: this.correlationId,
-      });
-    } catch (error) {
-      this.logger.error('Failed to send magic link email', {
-        email: data.email,
-        correlationId: this.correlationId,
-        error: error instanceof Error ? {
-          message: error.message,
-          name: error.name,
-          stack: error.stack,
-        } : { message: String(error) },
-      });
+    for (let attempt = 1; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        this.logger.debug(`Sending email attempt ${attempt}/${this.retryConfig.maxRetries}`, {
+          email,
+          attempt,
+          correlationId: this.correlationId,
+        });
 
-      // Wrap underlying transporter error in a ServiceError so higher layers can react
-      throw new ServiceError(
-        ErrorCode.EMAIL_SERVICE_ERROR,
-        'Failed to send magic link email',
-        500,
-        { 
-          email: data.email,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        },
-        this.correlationId
-      );
+        const info = await this.transporter.sendMail(mailOptions);
+
+        this.logger.info('Magic link email sent successfully', {
+          email,
+          messageId: info.messageId,
+          response: info.response,
+          attempt,
+          correlationId: this.correlationId,
+        });
+
+        return; // Success, exit retry loop
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        this.logger.warn(`Email send attempt ${attempt} failed`, {
+          email,
+          attempt,
+          maxRetries: this.retryConfig.maxRetries,
+          error: lastError.message,
+          correlationId: this.correlationId,
+        });
+
+        // Don't retry on the last attempt
+        if (attempt === this.retryConfig.maxRetries) {
+          break;
+        }
+
+        // Wait before retry with exponential backoff
+        const delay = Math.min(
+          this.retryConfig.baseDelay * Math.pow(2, attempt - 1),
+          this.retryConfig.maxDelay
+        );
+
+        this.logger.debug(`Waiting ${delay}ms before retry ${attempt + 1}`, {
+          email,
+          delay,
+          correlationId: this.correlationId,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+
+    // All retries failed
+    this.logger.error('Failed to send magic link email after all retries', {
+      email,
+      maxRetries: this.retryConfig.maxRetries,
+      lastError: lastError?.message,
+      correlationId: this.correlationId,
+    });
+
+    // Wrap underlying transporter error in a ServiceError so higher layers can react
+    throw new ServiceError(
+      ErrorCode.EMAIL_SERVICE_ERROR,
+      `Failed to send magic link email after ${this.retryConfig.maxRetries} attempts`,
+      500,
+      { 
+        email,
+        attempts: this.retryConfig.maxRetries,
+        lastError: lastError?.message
+      },
+      this.correlationId
+    );
   }
 
   /**
