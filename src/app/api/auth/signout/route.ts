@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
     const ipAddress = request.headers.get('X-Client-IP') || getClientIP(request);
     const userAgent = request.headers.get('user-agent');
     
-    // Initialize database connection
-    const dataSource = await initializeDatabase();
+    // Ensure database connection is available
+    await initializeDatabase();
     
     // Create session service instance with correlation ID
-    const sessionService = new SessionService(dataSource, correlationId);
+    const sessionService = SessionService.create(correlationId);
 
     // Find session by token hash to get session ID
     const tokenHash = await hashToken(sessionToken);

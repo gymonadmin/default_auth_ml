@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Initialize database connection
-    const dataSource = await initializeDatabase();
+    // Ensure database connection is available
+    await initializeDatabase();
     
     // Create session service instance with correlation ID
-    const sessionService = new SessionService(dataSource, correlationId);
+    const sessionService = SessionService.create(correlationId);
 
     // Validate session
     const sessionData = await sessionService.validateSession(sessionToken);

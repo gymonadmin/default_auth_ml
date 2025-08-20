@@ -27,6 +27,7 @@ import {
 import { createExpirationDate, hasExpired } from '@/lib/utils/time';
 import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
+import { getDataSource, isDatabaseConnected } from '@/lib/config/database';
 
 export interface SendMagicLinkRequest {
   email: string;
@@ -86,17 +87,31 @@ export class AuthService {
   private logger: Logger;
   private correlationId: string;
 
-  constructor(dataSource: DataSource, correlationId?: string) {
-    this.dataSource = dataSource;
+  constructor(correlationId?: string) {
     this.correlationId = correlationId || 'unknown';
     this.logger = new Logger(this.correlationId);
     
+    // Validate database connection
+    if (!isDatabaseConnected()) {
+      throw new AuthError(
+        ErrorCode.DATABASE_ERROR,
+        'Database not connected',
+        500,
+        { correlationId: this.correlationId },
+        this.correlationId,
+        'Database connection is not available'
+      );
+    }
+
+    // Get singleton database connection
+    this.dataSource = getDataSource();
+    
     // Initialize repositories with correlation ID
-    this.userRepo = new UserRepository(dataSource, this.correlationId);
-    this.profileRepo = new ProfileRepository(dataSource, this.correlationId);
-    this.sessionRepo = new SessionRepository(dataSource, this.correlationId);
-    this.tokenRepo = new MagicSigninTokenRepository(dataSource, this.correlationId);
-    this.auditRepo = new AuditLogRepository(dataSource, this.correlationId);
+    this.userRepo = new UserRepository(this.dataSource, this.correlationId);
+    this.profileRepo = new ProfileRepository(this.dataSource, this.correlationId);
+    this.sessionRepo = new SessionRepository(this.dataSource, this.correlationId);
+    this.tokenRepo = new MagicSigninTokenRepository(this.dataSource, this.correlationId);
+    this.auditRepo = new AuditLogRepository(this.dataSource, this.correlationId);
     
     // Initialize services with correlation ID
     this.emailService = new EmailService(this.correlationId);
@@ -107,7 +122,8 @@ export class AuthService {
 
     this.logger.debug('AuthService initialized', {
       correlationId: this.correlationId,
-      hasDataSource: !!dataSource,
+      hasDataSource: !!this.dataSource,
+      databaseConnected: isDatabaseConnected(),
       config: this.config,
     });
   }
@@ -990,7 +1006,26 @@ export class AuthService {
   /**
    * Create AuthService instance
    */
-  static create(dataSource: DataSource, correlationId?: string): AuthService {
-    return new AuthService(dataSource, correlationId);
+  static create(correlationId?: string): AuthService {
+    return new AuthService(correlationId);
+  }
+
+  /**
+   * Create AuthService instance with database validation
+   */
+  static async createWithConnection(correlationId?: string): Promise<AuthService> {
+    // Ensure database is connected
+    if (!isDatabaseConnected()) {
+      throw new AuthError(
+        ErrorCode.DATABASE_ERROR,
+        'Database connection required but not available',
+        500,
+        { correlationId },
+        correlationId,
+        'Database service is not available'
+      );
+    }
+    
+    return new AuthService(correlationId);
   }
 }

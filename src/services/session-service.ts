@@ -14,6 +14,7 @@ import {
 import { createExpirationDate, hasExpired } from '@/lib/utils/time';
 import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
+import { getDataSource, isDatabaseConnected } from '@/lib/config/database';
 
 export interface CreateSessionRequest {
   userId: string;
@@ -54,22 +55,37 @@ export class SessionService {
   private logger: Logger;
   private correlationId: string;
 
-  constructor(dataSource: DataSource, correlationId?: string) {
-    this.dataSource = dataSource;
+  constructor(correlationId?: string) {
     this.correlationId = correlationId || 'unknown';
     this.logger = new Logger(this.correlationId);
     
+    // Validate database connection
+    if (!isDatabaseConnected()) {
+      throw new AuthError(
+        ErrorCode.DATABASE_ERROR,
+        'Database not connected',
+        500,
+        { correlationId: this.correlationId },
+        this.correlationId,
+        'Database connection is not available'
+      );
+    }
+
+    // Get singleton database connection
+    this.dataSource = getDataSource();
+    
     // Initialize repositories with correlation ID
-    this.sessionRepo = new SessionRepository(dataSource, this.correlationId);
-    this.userRepo = new UserRepository(dataSource, this.correlationId);
-    this.auditRepo = new AuditLogRepository(dataSource, this.correlationId);
+    this.sessionRepo = new SessionRepository(this.dataSource, this.correlationId);
+    this.userRepo = new UserRepository(this.dataSource, this.correlationId);
+    this.auditRepo = new AuditLogRepository(this.dataSource, this.correlationId);
     
     // Load configuration
     this.config = this.loadConfiguration();
 
     this.logger.debug('SessionService initialized', {
       correlationId: this.correlationId,
-      hasDataSource: !!dataSource,
+      hasDataSource: !!this.dataSource,
+      databaseConnected: isDatabaseConnected(),
       config: this.config,
     });
   }
@@ -556,7 +572,26 @@ export class SessionService {
   /**
    * Create SessionService instance
    */
-  static create(dataSource: DataSource, correlationId?: string): SessionService {
-    return new SessionService(dataSource, correlationId);
+  static create(correlationId?: string): SessionService {
+    return new SessionService(correlationId);
+  }
+
+  /**
+   * Create SessionService instance with database validation
+   */
+  static async createWithConnection(correlationId?: string): Promise<SessionService> {
+    // Ensure database is connected
+    if (!isDatabaseConnected()) {
+      throw new AuthError(
+        ErrorCode.DATABASE_ERROR,
+        'Database connection required but not available',
+        500,
+        { correlationId },
+        correlationId,
+        'Database service is not available'
+      );
+    }
+    
+    return new SessionService(correlationId);
   }
 }

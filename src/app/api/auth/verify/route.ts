@@ -36,11 +36,11 @@ export async function POST(request: NextRequest) {
     const ipAddress = request.headers.get('X-Client-IP') || getClientIP(request);
     const userAgent = request.headers.get('user-agent');
     
-    // Initialize database connection
-    const dataSource = await initializeDatabase();
+    // Ensure database connection is available
+    await initializeDatabase();
     
     // Create auth service instance with correlation ID
-    const authService = new AuthService(dataSource, correlationId);
+    const authService = AuthService.create(correlationId);
 
     // Verify magic link and create session
     const result = await authService.verifyMagicLink({
