@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       userAgent: request.headers.get('user-agent'),
     });
 
-    // Get session token from cookies
+    // Get session token from cookies (handles signed cookies properly)
     const sessionToken = getSessionTokenFromCookies(request.cookies);
     
     if (!sessionToken) {
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.json(responseData);
     
-    // Update session cookie if it was extended
+    // Update session cookie if it was extended (always use signed cookies)
     if (sessionData.shouldExtend && updatedSession.expiresAt !== sessionData.session.expiresAt) {
       const cookieHeader = createSecureSessionCookie(sessionToken, updatedSession.expiresAt);
       response.headers.set('Set-Cookie', cookieHeader);
@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
       } : { message: String(error) },
     });
 
-    // Clear session cookie on validation failure
+    // Clear session cookie on validation failure (handle signed cookies properly)
     const errorResponse = handleApiError(error, correlationId);
     
     if (error instanceof AuthError && 

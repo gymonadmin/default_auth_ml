@@ -18,12 +18,20 @@ function getCookieSecret(): string {
   return secret;
 }
 
+/**
+ * Sign a cookie value with HMAC-SHA256
+ * ALL session cookies MUST be signed for security
+ */
 function signValue(value: string): string {
   const secret = getCookieSecret();
   const sig = crypto.createHmac('sha256', secret).update(value).digest('hex');
   return `${value}.${sig}`;
 }
 
+/**
+ * Verify and extract value from signed cookie
+ * Returns null if signature verification fails
+ */
 function verifySignedValue(signed: string): string | null {
   const idx = signed.lastIndexOf('.');
   if (idx === -1) return null;
@@ -49,6 +57,7 @@ export interface SessionCookieOptions {
 
 /**
  * Create a secure session cookie header
+ * ALL session cookies are automatically signed for security
  */
 export function createSecureSessionCookie(
   sessionToken: string,
@@ -57,7 +66,7 @@ export function createSecureSessionCookie(
 ): string {
   const isProduction = process.env.NODE_ENV === 'production';
   
-  // Sign the token before storing in cookie so client-side tampering can be detected.
+  // ALWAYS sign the session token for security
   const signed = signValue(sessionToken);
 
   const cookieOptions = {
@@ -76,6 +85,7 @@ export function createSecureSessionCookie(
 
 /**
  * Create a cookie header to clear the session cookie
+ * Handles both signed and unsigned cookies for compatibility
  */
 export function clearSessionCookie(options: SessionCookieOptions = {}): string {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -93,7 +103,10 @@ export function clearSessionCookie(options: SessionCookieOptions = {}): string {
   return serialize(SESSION_COOKIE_NAME, '', cookieOptions);
 }
 
-// helper used by server-side cookie parsing middleware to extract the original token
+/**
+ * Extract session token from signed cookie value
+ * This function ALWAYS expects signed cookies
+ */
 export function extractSessionTokenFromSignedCookie(signedValue?: string | null): string | null {
   if (!signedValue) return null;
   try {
@@ -105,13 +118,14 @@ export function extractSessionTokenFromSignedCookie(signedValue?: string | null)
 
 /**
  * Get session token from request cookies
+ * ALL session cookies are expected to be signed
  */
 export function getSessionTokenFromCookies(cookies: RequestCookies): string | null {
   try {
     const sessionCookie = cookies.get(SESSION_COOKIE_NAME);
     if (!sessionCookie?.value) return null;
     
-    // Extract and verify the signed token
+    // Extract and verify the signed token (ALL session cookies are signed)
     return extractSessionTokenFromSignedCookie(sessionCookie.value);
   } catch (error) {
     return null;
@@ -120,6 +134,7 @@ export function getSessionTokenFromCookies(cookies: RequestCookies): string | nu
 
 /**
  * Validate session cookie format
+ * Expects the actual session token (after signature verification)
  */
 export function validateSessionCookie(cookieValue: string): boolean {
   if (!cookieValue || typeof cookieValue !== 'string') {
@@ -133,6 +148,7 @@ export function validateSessionCookie(cookieValue: string): boolean {
 
 /**
  * Parse session cookie with validation
+ * Handles signed cookie verification and token validation
  */
 export function parseSessionCookie(cookies: RequestCookies): {
   token: string | null;
@@ -170,6 +186,7 @@ export function getDefaultCookieOptions(): SessionCookieOptions {
 
 /**
  * Create a temporary cookie for development/testing
+ * Note: These are NOT signed - only use for non-sensitive data
  */
 export function createTestCookie(
   name: string,

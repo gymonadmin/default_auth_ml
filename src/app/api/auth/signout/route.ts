@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
         message: 'Signed out successfully',
       });
       
-      // Clear both session and CSRF cookies
+      // Clear both session and CSRF cookies (handle signed session cookie)
       const clearSessionCookieHeader = clearSessionCookie();
       const clearCSRFHeader = clearCSRFCookie();
       
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       } : { message: String(error) },
     });
 
-    // Even on error, clear both cookies
+    // Even on error, clear both cookies (handle signed session cookie)
     const errorResponse = handleApiError(error, correlationId);
     const clearSessionCookieHeader = clearSessionCookie();
     const clearCSRFHeader = clearCSRFCookie();

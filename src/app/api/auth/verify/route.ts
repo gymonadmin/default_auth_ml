@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     // Create response
     const response = NextResponse.json(responseData);
 
-    // Set secure session cookie
+    // Set secure session cookie (always signed)
     const sessionToken = (result.session as any).token;
     const sessionCookieHeader = createSecureSessionCookie(sessionToken, result.session.expiresAt);
     
