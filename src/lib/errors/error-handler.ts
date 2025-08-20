@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { AppError, ErrorCode, ValidationError, DatabaseError, ServiceError } from './error-codes';
 import { Logger } from '@/lib/config/logger';
+import { setCSPHeaders } from '@/lib/utils/csp';
 
 export interface ErrorResponse {
   success: false;
@@ -50,7 +51,12 @@ export class ErrorHandler {
       },
     };
 
-    return NextResponse.json(response, { status: appError.statusCode });
+    const nextResponse = NextResponse.json(response, { status: appError.statusCode });
+    
+    // Add security headers including CSP to all error responses
+    setCSPHeaders(nextResponse.headers);
+    
+    return nextResponse;
   }
 
   /**

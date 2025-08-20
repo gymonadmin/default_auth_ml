@@ -7,6 +7,7 @@ import { generateCorrelationId, getCorrelationIdFromHeaders } from '@/lib/utils/
 import { getClientIP } from '@/lib/utils/ip';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
+import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationIdFromHeaders(request.headers) || generateCorrelationId();
@@ -69,6 +70,9 @@ export async function POST(request: NextRequest) {
     // Add correlation ID header
     response.headers.set('x-correlation-id', correlationId);
     
+    // Add security headers including CSP
+    setCSPHeaders(response.headers);
+    
     return response;
 
   } catch (error) {
@@ -76,28 +80,39 @@ export async function POST(request: NextRequest) {
       correlationId,
     });
 
-    return handleApiError(error, correlationId);
+    const errorResponse = handleApiError(error, correlationId);
+    
+    // Add security headers to error responses
+    setCSPHeaders(errorResponse.headers);
+    
+    return errorResponse;
   }
 }
 
 // Handle unsupported methods
 export async function GET() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function PUT() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function DELETE() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }

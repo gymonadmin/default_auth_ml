@@ -8,6 +8,7 @@ import { getClientIP } from '@/lib/utils/ip';
 import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
 import { createSecureSessionCookie, clearSessionCookie } from '@/lib/utils/cookies';
+import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationIdFromHeaders(request.headers) || generateCorrelationId();
@@ -95,9 +96,8 @@ export async function POST(request: NextRequest) {
     // Add correlation ID header
     response.headers.set('x-correlation-id', correlationId);
     
-    // Add security headers
-    response.headers.set('X-Frame-Options', 'DENY');
-    response.headers.set('X-Content-Type-Options', 'nosniff');
+    // Add security headers including CSP
+    setCSPHeaders(response.headers);
     
     return response;
 
@@ -111,28 +111,37 @@ export async function POST(request: NextRequest) {
     const clearCookieHeader = clearSessionCookie();
     errorResponse.headers.set('Set-Cookie', clearCookieHeader);
     
+    // Add security headers to error responses
+    setCSPHeaders(errorResponse.headers);
+    
     return errorResponse;
   }
 }
 
 // Handle unsupported methods
 export async function GET() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function PUT() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function DELETE() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'POST' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }

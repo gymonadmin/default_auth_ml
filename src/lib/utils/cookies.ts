@@ -109,7 +109,10 @@ export function extractSessionTokenFromSignedCookie(signedValue?: string | null)
 export function getSessionTokenFromCookies(cookies: RequestCookies): string | null {
   try {
     const sessionCookie = cookies.get(SESSION_COOKIE_NAME);
-    return sessionCookie?.value || null;
+    if (!sessionCookie?.value) return null;
+    
+    // Extract and verify the signed token
+    return extractSessionTokenFromSignedCookie(sessionCookie.value);
   } catch (error) {
     return null;
   }

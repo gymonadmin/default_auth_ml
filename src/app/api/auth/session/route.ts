@@ -7,6 +7,7 @@ import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
 import { getSessionTokenFromCookies, clearSessionCookie } from '@/lib/utils/cookies';
 import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
+import { setCSPHeaders } from '@/lib/utils/csp';
 
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationIdFromHeaders(request.headers) || generateCorrelationId();
@@ -94,9 +95,8 @@ export async function GET(request: NextRequest) {
     // Add correlation ID header
     response.headers.set('x-correlation-id', correlationId);
     
-    // Add security headers
-    response.headers.set('X-Frame-Options', 'DENY');
-    response.headers.set('X-Content-Type-Options', 'nosniff');
+    // Add security headers including CSP
+    setCSPHeaders(response.headers);
     
     return response;
 
@@ -114,28 +114,37 @@ export async function GET(request: NextRequest) {
       errorResponse.headers.set('Set-Cookie', clearCookieHeader);
     }
     
+    // Add security headers to error responses
+    setCSPHeaders(errorResponse.headers);
+    
     return errorResponse;
   }
 }
 
 // Handle unsupported methods
 export async function POST() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'GET' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function PUT() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'GET' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }
 
 export async function DELETE() {
-  return NextResponse.json(
+  const response = NextResponse.json(
     { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' } },
     { status: 405, headers: { 'Allow': 'GET' } }
   );
+  setCSPHeaders(response.headers);
+  return response;
 }

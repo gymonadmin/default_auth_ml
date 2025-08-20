@@ -1,4 +1,11 @@
 // src/app/(auth)/signin/page.tsx
+import type { Viewport } from 'next';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function SignInPage() {
   return (
     <div>
