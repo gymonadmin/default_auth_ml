@@ -17,7 +17,10 @@ import {
   generateMagicLinkToken, 
   generateSessionToken, 
   hashToken, 
-  verifyTokenHash 
+  verifyTokenHash,
+  validateMagicLinkTokenFormat,
+  validateSessionTokenFormat,
+  sanitizeTokenForLogging
 } from '@/lib/utils/crypto';
 import { 
   generateMagicLinkUrl, 
@@ -174,8 +177,24 @@ export class AuthService {
         correlationId: this.correlationId,
       });
 
-      // Generate magic link token
+      // Generate magic link token with consistent format validation
       const magicToken = generateMagicLinkToken();
+      
+      // Validate the generated token format
+      if (!validateMagicLinkTokenFormat(magicToken)) {
+        throw new AuthError(
+          ErrorCode.INTERNAL_SERVER_ERROR,
+          'Generated magic link token has invalid format',
+          500,
+          { 
+            tokenLength: magicToken.length,
+            tokenSample: sanitizeTokenForLogging(magicToken)
+          },
+          this.correlationId,
+          'Failed to generate secure token'
+        );
+      }
+
       const tokenHash = await hashToken(magicToken);
       const expiresAt = createExpirationDate(this.config.magicLinkTTLSeconds);
 
@@ -254,6 +273,7 @@ export class AuthService {
               expiresAt: expiresAt.toISOString(),
               hasRedirectUrl: !!request.redirectUrl,
               tokenLength: magicToken.length,
+              tokenValid: validateMagicLinkTokenFormat(magicToken),
             },
             ipAddress: request.ipAddress || undefined,
             userAgent: request.userAgent || undefined,
@@ -280,6 +300,7 @@ export class AuthService {
         isNewUser,
         duration,
         expiresAt: expiresAt.toISOString(),
+        tokenSample: sanitizeTokenForLogging(magicToken),
         correlationId: this.correlationId,
       });
 
@@ -345,8 +366,25 @@ export class AuthService {
         tokenLength: request.token.length,
         hasProfile: !!request.profile,
         ipAddress: request.ipAddress,
+        tokenSample: sanitizeTokenForLogging(request.token),
         correlationId: this.correlationId,
       });
+
+      // Validate token format first
+      if (!validateMagicLinkTokenFormat(request.token)) {
+        throw new AuthError(
+          ErrorCode.INVALID_TOKEN,
+          'Invalid magic link token format',
+          400,
+          { 
+            tokenLength: request.token.length,
+            expectedFormat: 'URL-safe base64, 43 characters',
+            tokenSample: sanitizeTokenForLogging(request.token)
+          },
+          this.correlationId,
+          'The magic link format is invalid. Please request a new one.'
+        );
+      }
 
       // Find and validate token
       const tokenHash = await hashToken(request.token);
@@ -521,8 +559,24 @@ export class AuthService {
         // Mark token as used
         await transactionTokenRepo.markAsUsed(magicToken.id);
 
-        // Create new session
+        // Create new session with consistent token format
         const sessionToken = generateSessionToken();
+        
+        // Validate the generated session token format
+        if (!validateSessionTokenFormat(sessionToken)) {
+          throw new AuthError(
+            ErrorCode.INTERNAL_SERVER_ERROR,
+            'Generated session token has invalid format',
+            500,
+            { 
+              tokenLength: sessionToken.length,
+              tokenSample: sanitizeTokenForLogging(sessionToken)
+            },
+            this.correlationId,
+            'Failed to generate secure session'
+          );
+        }
+
         const sessionTokenHash = await hashToken(sessionToken);
         const sessionExpiresAt = createExpirationDate(this.config.sessionTTLSeconds);
 
@@ -546,6 +600,7 @@ export class AuthService {
               context: {
                 hasProfile: !!request.profile,
                 sessionId: session.id,
+                sessionTokenValid: validateSessionTokenFormat(sessionToken),
               },
               ipAddress: request.ipAddress,
               userAgent: request.userAgent,
@@ -565,6 +620,7 @@ export class AuthService {
               method: 'magic_link',
               isNewUser,
               sessionId: session.id,
+              sessionTokenValid: validateSessionTokenFormat(sessionToken),
             },
             ipAddress: request.ipAddress || undefined,
             userAgent: request.userAgent || undefined,
@@ -582,6 +638,7 @@ export class AuthService {
             context: {
               sessionId: session.id,
               expiresAt: session.expiresAt.toISOString(),
+              sessionTokenLength: sessionToken.length,
             },
             ipAddress: request.ipAddress || undefined,
             userAgent: request.userAgent || undefined,
@@ -599,6 +656,7 @@ export class AuthService {
         isNewUser,
         sessionId: result.session.id,
         duration,
+        sessionTokenSample: sanitizeTokenForLogging(result.sessionToken),
         correlationId: this.correlationId,
       });
 
@@ -619,6 +677,7 @@ export class AuthService {
       
       this.logger.error('Magic link verification failed', {
         tokenLength: request.token.length,
+        tokenSample: sanitizeTokenForLogging(request.token),
         duration,
         correlationId: this.correlationId,
         error: error instanceof Error ? {
@@ -644,6 +703,7 @@ export class AuthService {
                 method: 'magic_link',
                 error: error instanceof Error ? error.name : 'UnknownError',
                 tokenId: magicToken.id,
+                tokenValid: validateMagicLinkTokenFormat(request.token),
               },
               ipAddress: request.ipAddress,
               userAgent: request.userAgent,
@@ -737,8 +797,20 @@ export class AuthService {
     try {
       this.logger.debug('Validating session token', {
         tokenLength: sessionToken.length,
+        tokenSample: sanitizeTokenForLogging(sessionToken),
         correlationId: this.correlationId,
       });
+
+      // Validate session token format first
+      if (!validateSessionTokenFormat(sessionToken)) {
+        this.logger.debug('Invalid session token format', {
+          tokenLength: sessionToken.length,
+          expectedFormat: 'hexadecimal, 64 characters',
+          tokenSample: sanitizeTokenForLogging(sessionToken),
+          correlationId: this.correlationId,
+        });
+        return null;
+      }
 
       const tokenHash = await hashToken(sessionToken);
       const session = await this.sessionRepo.findByTokenHash(tokenHash);
@@ -789,6 +861,7 @@ export class AuthService {
 
     } catch (error) {
       this.logger.error('Session validation error', {
+        tokenSample: sanitizeTokenForLogging(sessionToken),
         correlationId: this.correlationId,
         error: error instanceof Error ? {
           message: error.message,
@@ -807,9 +880,20 @@ export class AuthService {
     try {
       this.logger.info('Starting sign out process', {
         tokenLength: sessionToken.length,
+        tokenSample: sanitizeTokenForLogging(sessionToken),
         ipAddress,
         correlationId: this.correlationId,
       });
+
+      // Validate session token format
+      if (!validateSessionTokenFormat(sessionToken)) {
+        this.logger.debug('Invalid session token format for sign out', {
+          tokenLength: sessionToken.length,
+          tokenSample: sanitizeTokenForLogging(sessionToken),
+          correlationId: this.correlationId,
+        });
+        return; // No valid session to sign out
+      }
 
       const tokenHash = await hashToken(sessionToken);
       const session = await this.sessionRepo.findByTokenHash(tokenHash);
@@ -825,6 +909,7 @@ export class AuthService {
             userId: session.userId,
             context: {
               sessionId: session.id,
+              sessionTokenValid: validateSessionTokenFormat(sessionToken),
             },
             ipAddress: ipAddress || undefined,
             userAgent: userAgent || undefined,
@@ -847,6 +932,7 @@ export class AuthService {
 
     } catch (error) {
       this.logger.error('Sign out error', {
+        tokenSample: sanitizeTokenForLogging(sessionToken),
         correlationId: this.correlationId,
         error: error instanceof Error ? {
           message: error.message,

@@ -1,5 +1,10 @@
 // src/lib/validation/schemas.ts
 import { z } from 'zod';
+import { 
+  validateSessionTokenFormat, 
+  validateMagicLinkTokenFormat,
+  TOKEN_VALIDATION 
+} from '@/lib/utils/crypto';
 
 // Email validation schema
 export const emailSchema = z
@@ -9,17 +14,27 @@ export const emailSchema = z
   .email('Please enter a valid email address')
   .transform(email => email.toLowerCase().trim());
 
-// Magic link token schema
+// Magic link token schema (43 characters, URL-safe base64)
 export const magicLinkTokenSchema = z
   .string()
-  .min(32, 'Invalid token format')
-  .regex(/^[A-Za-z0-9_-]+$/, 'Invalid token format');
+  .min(1, 'Token is required')
+  .refine(
+    (token) => validateMagicLinkTokenFormat(token),
+    {
+      message: 'Invalid magic link token format. Expected 43 character URL-safe base64 string.',
+    }
+  );
 
-// Session token schema (hex string)
+// Session token schema (64 characters, hex)
 export const sessionTokenSchema = z
   .string()
-  .length(64, 'Invalid session token format')
-  .regex(/^[0-9a-f]+$/i, 'Invalid session token format');
+  .min(1, 'Session token is required')
+  .refine(
+    (token) => validateSessionTokenFormat(token),
+    {
+      message: 'Invalid session token format. Expected 64 character hexadecimal string.',
+    }
+  );
 
 // UUID schema
 export const uuidSchema = z
@@ -59,6 +74,11 @@ export const sendMagicLinkSchema = z.object({
 export const verifyMagicLinkSchema = z.object({
   token: magicLinkTokenSchema,
   profile: createProfileSchema.optional(),
+});
+
+// Session validation schema
+export const validateSessionSchema = z.object({
+  token: sessionTokenSchema,
 });
 
 // Pagination schemas
@@ -125,6 +145,39 @@ export const requestMetadataSchema = z.object({
   timestamp: z.date().default(() => new Date()),
 });
 
+// Token format validation schemas (for API parameter validation)
+export const tokenFormatValidationSchema = z.object({
+  token: z.string().refine(
+    (token) => {
+      // Accept either session tokens or magic link tokens
+      return validateSessionTokenFormat(token) || validateMagicLinkTokenFormat(token);
+    },
+    {
+      message: 'Invalid token format. Expected either a 64-character hex session token or 43-character base64url magic link token.',
+    }
+  ),
+});
+
+// Cookie validation schemas
+export const cookieTokenSchema = z
+  .string()
+  .refine(
+    (token) => validateSessionTokenFormat(token),
+    {
+      message: 'Invalid session cookie format.',
+    }
+  );
+
+// Query parameter schemas for token extraction
+export const magicLinkQuerySchema = z.object({
+  token: magicLinkTokenSchema,
+  redirect: z.string().url().optional(),
+});
+
+export const sessionQuerySchema = z.object({
+  sessionToken: sessionTokenSchema.optional(),
+});
+
 // Environment variable schemas
 export const envSchema = z.object({
   // Database
@@ -171,6 +224,33 @@ export const envSchema = z.object({
   USER_HEADER_SIGNATURE_SECRET: z.string().min(32),
 });
 
+// Validation helper functions
+export const validateTokenType = (token: string): 'session' | 'magic-link' | 'invalid' => {
+  if (validateSessionTokenFormat(token)) {
+    return 'session';
+  }
+  if (validateMagicLinkTokenFormat(token)) {
+    return 'magic-link';
+  }
+  return 'invalid';
+};
+
+// Token validation constants for reference
+export const TOKEN_FORMAT_INFO = {
+  SESSION: {
+    length: TOKEN_VALIDATION.SESSION_TOKEN_LENGTH,
+    pattern: TOKEN_VALIDATION.SESSION_TOKEN_PATTERN,
+    description: '64-character hexadecimal string',
+    example: 'a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890',
+  },
+  MAGIC_LINK: {
+    length: TOKEN_VALIDATION.MAGIC_LINK_TOKEN_LENGTH,
+    pattern: TOKEN_VALIDATION.MAGIC_LINK_TOKEN_PATTERN,
+    description: '43-character URL-safe base64 string',
+    example: 'Zm9vYmFyYmF6cXV4d2hhdGV2ZXJzb21ldGhpbmdyYW5kb20',
+  },
+} as const;
+
 // Type exports
 export type SendMagicLinkRequest = z.infer<typeof sendMagicLinkSchema>;
 export type VerifyMagicLinkRequest = z.infer<typeof verifyMagicLinkSchema>;
@@ -181,3 +261,5 @@ export type AuditEvent = z.infer<typeof auditEventSchema>;
 export type CreateAuditLogRequest = z.infer<typeof createAuditLogSchema>;
 export type RequestMetadata = z.infer<typeof requestMetadataSchema>;
 export type EnvConfig = z.infer<typeof envSchema>;
+export type MagicLinkQuery = z.infer<typeof magicLinkQuerySchema>;
+export type SessionQuery = z.infer<typeof sessionQuerySchema>;
