@@ -1,7 +1,7 @@
 // src/repositories/session-repository.ts
 import { Repository, DataSource, LessThan, MoreThan } from 'typeorm';
 import { Session } from '@/entities/session';
-import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
+import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export interface CreateSessionData {
@@ -45,11 +45,23 @@ export class SessionRepository {
 
       return session;
     } catch (error) {
-      this.logger.error('Error finding session by token hash', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error finding session by token hash', {
+        tokenHashPrefix: tokenHash.substring(0, 8),
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find session by token hash',
-        undefined,
+        { 
+          tokenHashPrefix: tokenHash.substring(0, 8),
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -76,11 +88,23 @@ export class SessionRepository {
 
       return session;
     } catch (error) {
-      this.logger.error('Error finding session by ID', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
+      this.logger.error('Error finding session by ID', {
+        sessionId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find session by ID',
-        { sessionId: id },
+        { 
+          sessionId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -119,21 +143,26 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
-      this.logger.error('Error creating session', error instanceof Error ? error : new Error(String(error)), { userId: sessionData.userId });
+      this.logger.error('Error creating session', {
+        userId: sessionData.userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       
-      if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
-        throw new DatabaseError(
-          ErrorCode.DUPLICATE_RECORD,
-          'Session token already exists',
-          { userId: sessionData.userId },
-          this.logger['correlationId']
-        );
-      }
-      
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
-        'Failed to create session',
-        { userId: sessionData.userId },
+        errorCode,
+        errorCode === ErrorCode.DUPLICATE_RECORD 
+          ? 'Session token already exists'
+          : 'Failed to create session',
+        { 
+          userId: sessionData.userId,
+          originalError: error instanceof Error ? error.name : 'Unknown',
+          pgCode: error && typeof error === 'object' && 'code' in error ? error.code : undefined
+        },
         this.logger['correlationId']
       );
     }
@@ -166,15 +195,28 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error updating session last accessed time', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
+      this.logger.error('Error updating session last accessed time', {
+        sessionId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to update session last accessed time',
-        { sessionId: id },
+        { 
+          sessionId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -202,15 +244,28 @@ export class SessionRepository {
       
       this.logger.info('Session revoked successfully', { sessionId: id });
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error revoking session', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
+      this.logger.error('Error revoking session', {
+        sessionId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to revoke session',
-        { sessionId: id },
+        { 
+          sessionId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -237,11 +292,23 @@ export class SessionRepository {
 
       return revokedCount;
     } catch (error) {
-      this.logger.error('Error revoking all sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error revoking all sessions for user', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to revoke all sessions for user',
-        { userId },
+        { 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -277,15 +344,28 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error extending session expiry', error instanceof Error ? error : new Error(String(error)), { sessionId: id });
+      this.logger.error('Error extending session expiry', {
+        sessionId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to extend session expiry',
-        { sessionId: id },
+        { 
+          sessionId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -316,11 +396,23 @@ export class SessionRepository {
 
       return sessions;
     } catch (error) {
-      this.logger.error('Error finding active sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error finding active sessions for user', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find active sessions for user',
-        { userId },
+        { 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -343,11 +435,19 @@ export class SessionRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up expired sessions', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error cleaning up expired sessions', {
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to cleanup expired sessions',
-        undefined,
+        { originalError: error instanceof Error ? error.name : 'Unknown' },
         this.logger['correlationId']
       );
     }
@@ -372,11 +472,23 @@ export class SessionRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting active sessions for user', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error counting active sessions for user', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to count active sessions for user',
-        { userId },
+        { 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }

@@ -1,7 +1,7 @@
 // src/repositories/user-repository.ts
 import { Repository, DataSource, IsNull } from 'typeorm';
 import { User } from '@/entities/user';
-import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
+import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export class UserRepository {
@@ -36,11 +36,23 @@ export class UserRepository {
 
       return user;
     } catch (error) {
-      this.logger.error('Error finding user by email', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error finding user by email', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find user by email',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -69,11 +81,23 @@ export class UserRepository {
 
       return user;
     } catch (error) {
-      this.logger.error('Error finding user by ID', error instanceof Error ? error : new Error(String(error)), { userId: id });
+      this.logger.error('Error finding user by ID', {
+        userId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find user by ID',
-        { userId: id },
+        { 
+          userId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -102,21 +126,26 @@ export class UserRepository {
 
       return savedUser;
     } catch (error) {
-      this.logger.error('Error creating user', error instanceof Error ? error : new Error(String(error)), { email: userData.email });
+      this.logger.error('Error creating user', {
+        email: userData.email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       
-      if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
-        throw new DatabaseError(
-          ErrorCode.DUPLICATE_RECORD,
-          'User with this email already exists',
-          { email: userData.email },
-          this.logger['correlationId']
-        );
-      }
-      
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
-        'Failed to create user',
-        { email: userData.email },
+        errorCode,
+        errorCode === ErrorCode.DUPLICATE_RECORD 
+          ? 'User with this email already exists'
+          : 'Failed to create user',
+        { 
+          email: userData.email,
+          originalError: error instanceof Error ? error.name : 'Unknown',
+          pgCode: error && typeof error === 'object' && 'code' in error ? error.code : undefined
+        },
         this.logger['correlationId']
       );
     }
@@ -149,15 +178,28 @@ export class UserRepository {
 
       return savedUser;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error updating user', error instanceof Error ? error : new Error(String(error)), { userId: id });
+      this.logger.error('Error updating user', {
+        userId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to update user',
-        { userId: id },
+        { 
+          userId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -186,15 +228,28 @@ export class UserRepository {
       this.logger.info('User marked as verified', { userId: savedUser.id });
       return savedUser;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error marking user as verified', error instanceof Error ? error : new Error(String(error)), { userId: id });
+      this.logger.error('Error marking user as verified', {
+        userId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to mark user as verified',
-        { userId: id },
+        { 
+          userId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -222,15 +277,28 @@ export class UserRepository {
       
       this.logger.info('User soft deleted successfully', { userId: id });
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error soft deleting user', error instanceof Error ? error : new Error(String(error)), { userId: id });
+      this.logger.error('Error soft deleting user', {
+        userId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to soft delete user',
-        { userId: id },
+        { 
+          userId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -258,11 +326,23 @@ export class UserRepository {
 
       return exists;
     } catch (error) {
-      this.logger.error('Error checking email existence', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error checking email existence', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to check email existence',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -294,11 +374,23 @@ export class UserRepository {
 
       return users;
     } catch (error) {
-      this.logger.error('Error finding users by verification status', error instanceof Error ? error : new Error(String(error)), { isVerified });
+      this.logger.error('Error finding users by verification status', {
+        isVerified,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find users by verification status',
-        { isVerified },
+        { 
+          isVerified,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }

@@ -1,7 +1,7 @@
 // src/repositories/profile-repository.ts
 import { Repository, DataSource } from 'typeorm';
 import { Profile } from '@/entities/profile';
-import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
+import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export interface CreateProfileData {
@@ -39,11 +39,20 @@ export class ProfileRepository {
 
       return profile;
     } catch (error) {
-      this.logger.error('Error finding profile by user ID', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error finding profile by user ID', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find profile by user ID',
-        { userId },
+        { userId, originalError: error instanceof Error ? error.name : 'Unknown' },
         this.logger['correlationId']
       );
     }
@@ -69,11 +78,20 @@ export class ProfileRepository {
 
       return profile;
     } catch (error) {
-      this.logger.error('Error finding profile by ID', error instanceof Error ? error : new Error(String(error)), { profileId: id });
+      this.logger.error('Error finding profile by ID', {
+        profileId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find profile by ID',
-        { profileId: id },
+        { profileId: id, originalError: error instanceof Error ? error.name : 'Unknown' },
         this.logger['correlationId']
       );
     }
@@ -106,21 +124,26 @@ export class ProfileRepository {
 
       return savedProfile;
     } catch (error) {
-      this.logger.error('Error creating profile', error instanceof Error ? error : new Error(String(error)), { userId: profileData.userId });
+      this.logger.error('Error creating profile', {
+        userId: profileData.userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       
-      if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
-        throw new DatabaseError(
-          ErrorCode.DUPLICATE_RECORD,
-          'Profile already exists for this user',
-          { userId: profileData.userId },
-          this.logger['correlationId']
-        );
-      }
-      
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
-        'Failed to create profile',
-        { userId: profileData.userId },
+        errorCode,
+        errorCode === ErrorCode.DUPLICATE_RECORD 
+          ? 'Profile already exists for this user'
+          : 'Failed to create profile',
+        { 
+          userId: profileData.userId, 
+          originalError: error instanceof Error ? error.name : 'Unknown',
+          pgCode: error && typeof error === 'object' && 'code' in error ? error.code : undefined
+        },
         this.logger['correlationId']
       );
     }
@@ -153,15 +176,28 @@ export class ProfileRepository {
 
       return savedProfile;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error updating profile', error instanceof Error ? error : new Error(String(error)), { profileId: id });
+      this.logger.error('Error updating profile', {
+        profileId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to update profile',
-        { profileId: id },
+        { 
+          profileId: id, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -198,15 +234,28 @@ export class ProfileRepository {
 
       return savedProfile;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error updating profile name', error instanceof Error ? error : new Error(String(error)), { profileId: id });
+      this.logger.error('Error updating profile name', {
+        profileId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to update profile name',
-        { profileId: id },
+        { 
+          profileId: id, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -233,15 +282,28 @@ export class ProfileRepository {
       
       this.logger.info('Profile deleted successfully', { profileId: id });
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error deleting profile', error instanceof Error ? error : new Error(String(error)), { profileId: id });
+      this.logger.error('Error deleting profile', {
+        profileId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to delete profile',
-        { profileId: id },
+        { 
+          profileId: id, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -266,11 +328,23 @@ export class ProfileRepository {
 
       return exists;
     } catch (error) {
-      this.logger.error('Error checking profile existence', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error checking profile existence', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to check profile existence',
-        { userId },
+        { 
+          userId, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -303,11 +377,23 @@ export class ProfileRepository {
 
       return profiles;
     } catch (error) {
-      this.logger.error('Error searching profiles by name', error instanceof Error ? error : new Error(String(error)), { query });
+      this.logger.error('Error searching profiles by name', {
+        query,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to search profiles by name',
-        { query },
+        { 
+          query, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }

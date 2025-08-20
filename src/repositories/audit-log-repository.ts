@@ -1,7 +1,7 @@
 // src/repositories/audit-log-repository.ts
 import { Repository, DataSource, Between, LessThan } from 'typeorm';
 import { AuditLog, AuditEvent } from '@/entities/audit-log';
-import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
+import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export interface CreateAuditLogData {
@@ -43,6 +43,29 @@ export class AuditLogRepository {
    */
   async create(auditData: CreateAuditLogData): Promise<AuditLog> {
     try {
+      // Validate required fields
+      if (!auditData.email || !auditData.event) {
+        throw new DatabaseError(
+          ErrorCode.MISSING_REQUIRED_FIELD,
+          'Email and event are required for audit log entry',
+          { 
+            missingEmail: !auditData.email,
+            missingEvent: !auditData.event 
+          },
+          this.logger['correlationId']
+        );
+      }
+
+      // Validate email format
+      if (typeof auditData.email !== 'string' || !auditData.email.includes('@')) {
+        throw new DatabaseError(
+          ErrorCode.INVALID_FORMAT,
+          'Invalid email format for audit log entry',
+          { email: auditData.email },
+          this.logger['correlationId']
+        );
+      }
+
       this.logger.debug('Creating audit log entry', { 
         event: auditData.event,
         email: auditData.email,
@@ -74,15 +97,30 @@ export class AuditLogRepository {
 
       return savedAuditLog;
     } catch (error) {
-      this.logger.error('Error creating audit log entry', error instanceof Error ? error : new Error(String(error)), {
+      // Re-throw if it's already a DatabaseError
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
+
+      this.logger.error('Error creating audit log entry', {
         event: auditData.event,
-        email: auditData.email 
+        email: auditData.email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to create audit log entry',
-        { event: auditData.event, email: auditData.email },
+        { 
+          event: auditData.event, 
+          email: auditData.email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -147,6 +185,35 @@ export class AuditLogRepository {
     limit: number = 50
   ): Promise<{ logs: AuditLog[]; total: number }> {
     try {
+      // Validate pagination parameters
+      if (page < 1) {
+        throw new DatabaseError(
+          ErrorCode.INVALID_INPUT,
+          'Page number must be greater than 0',
+          { page },
+          this.logger['correlationId']
+        );
+      }
+
+      if (limit < 1 || limit > 1000) {
+        throw new DatabaseError(
+          ErrorCode.INVALID_INPUT,
+          'Limit must be between 1 and 1000',
+          { limit },
+          this.logger['correlationId']
+        );
+      }
+
+      // Validate date range
+      if (filters.startDate && filters.endDate && filters.startDate > filters.endDate) {
+        throw new DatabaseError(
+          ErrorCode.INVALID_INPUT,
+          'Start date cannot be after end date',
+          { startDate: filters.startDate, endDate: filters.endDate },
+          this.logger['correlationId']
+        );
+      }
+
       this.logger.debug('Finding audit logs with filters', { 
         filters, 
         page, 
@@ -214,11 +281,28 @@ export class AuditLogRepository {
 
       return { logs, total };
     } catch (error) {
-      this.logger.error('Error finding audit logs with filters', error instanceof Error ? error : new Error(String(error)), { filters });
+      // Re-throw if it's already a DatabaseError
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
+
+      this.logger.error('Error finding audit logs with filters', {
+        filters,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find audit logs with filters',
-        { filters },
+        { 
+          filters,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -246,11 +330,23 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding audit logs by correlation ID', error instanceof Error ? error : new Error(String(error)), { correlationId });
+      this.logger.error('Error finding audit logs by correlation ID', {
+        correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find audit logs by correlation ID',
-        { correlationId },
+        { 
+          correlationId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -278,11 +374,23 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding recent audit logs for user', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error finding recent audit logs for user', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find recent audit logs for user',
-        { userId },
+        { 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -310,11 +418,23 @@ export class AuditLogRepository {
 
       return logs;
     } catch (error) {
-      this.logger.error('Error finding recent audit logs for email', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error finding recent audit logs for email', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find recent audit logs for email',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -353,11 +473,25 @@ export class AuditLogRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting events for email in window', error instanceof Error ? error : new Error(String(error)), { email, event });
+      this.logger.error('Error counting events for email in window', {
+        email,
+        event,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to count events for email in window',
-        { email, event },
+        { 
+          email, 
+          event,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -383,11 +517,23 @@ export class AuditLogRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up old audit logs', error instanceof Error ? error : new Error(String(error)), { olderThan });
+      this.logger.error('Error cleaning up old audit logs', {
+        olderThan,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to cleanup old audit logs',
-        { olderThan },
+        { 
+          olderThan,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -429,11 +575,25 @@ export class AuditLogRepository {
         return acc;
       }, {} as Record<string, number>);
     } catch (error) {
-      this.logger.error('Error getting audit statistics', error instanceof Error ? error : new Error(String(error)), { startDate, endDate });
+      this.logger.error('Error getting audit statistics', {
+        startDate,
+        endDate,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to get audit statistics',
-        { startDate, endDate },
+        { 
+          startDate,
+          endDate,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }

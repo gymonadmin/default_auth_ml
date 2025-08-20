@@ -1,7 +1,7 @@
 // src/repositories/magic-signin-token-repository.ts
 import { Repository, DataSource, LessThan } from 'typeorm';
 import { MagicSigninToken } from '@/entities/magic-signin-token';
-import { DatabaseError, ErrorCode } from '@/lib/errors/error-codes';
+import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export interface CreateMagicSigninTokenData {
@@ -50,11 +50,23 @@ export class MagicSigninTokenRepository {
 
       return token;
     } catch (error) {
-      this.logger.error('Error finding magic signin token by hash', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error finding magic signin token by hash', {
+        tokenHashPrefix: tokenHash.substring(0, 8),
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find magic signin token by hash',
-        undefined,
+        { 
+          tokenHashPrefix: tokenHash.substring(0, 8),
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -81,11 +93,23 @@ export class MagicSigninTokenRepository {
 
       return token;
     } catch (error) {
-      this.logger.error('Error finding magic signin token by ID', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
+      this.logger.error('Error finding magic signin token by ID', {
+        tokenId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find magic signin token by ID',
-        { tokenId: id },
+        { 
+          tokenId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -128,23 +152,26 @@ export class MagicSigninTokenRepository {
 
       return savedToken;
     } catch (error) {
-      this.logger.error('Error creating magic signin token', error instanceof Error ? error : new Error(String(error)), { 
-        email: tokenData.email 
+      this.logger.error('Error creating magic signin token', {
+        email: tokenData.email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
-      if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
-        throw new DatabaseError(
-          ErrorCode.DUPLICATE_RECORD,
-          'Magic signin token already exists',
-          { email: tokenData.email },
-          this.logger['correlationId']
-        );
-      }
-      
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
-        'Failed to create magic signin token',
-        { email: tokenData.email },
+        errorCode,
+        errorCode === ErrorCode.DUPLICATE_RECORD 
+          ? 'Magic signin token already exists'
+          : 'Failed to create magic signin token',
+        { 
+          email: tokenData.email,
+          originalError: error instanceof Error ? error.name : 'Unknown',
+          pgCode: error && typeof error === 'object' && 'code' in error ? error.code : undefined
+        },
         this.logger['correlationId']
       );
     }
@@ -177,15 +204,28 @@ export class MagicSigninTokenRepository {
 
       return savedToken;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error marking magic signin token as used', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
+      this.logger.error('Error marking magic signin token as used', {
+        tokenId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to mark magic signin token as used',
-        { tokenId: id },
+        { 
+          tokenId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -221,18 +261,30 @@ export class MagicSigninTokenRepository {
 
       return savedToken;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error linking magic signin token to user', error instanceof Error ? error : new Error(String(error)), { 
-        tokenId: id, 
-        userId 
+      this.logger.error('Error linking magic signin token to user', {
+        tokenId: id,
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to link magic signin token to user',
-        { tokenId: id, userId },
+        { 
+          tokenId: id, 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -267,11 +319,23 @@ export class MagicSigninTokenRepository {
 
       return validTokens;
     } catch (error) {
-      this.logger.error('Error finding valid magic signin tokens for email', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error finding valid magic signin tokens for email', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find valid magic signin tokens for email',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -304,11 +368,23 @@ export class MagicSigninTokenRepository {
 
       return invalidatedCount;
     } catch (error) {
-      this.logger.error('Error invalidating magic signin tokens for email', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error invalidating magic signin tokens for email', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to invalidate magic signin tokens for email',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -331,11 +407,19 @@ export class MagicSigninTokenRepository {
 
       return deletedCount;
     } catch (error) {
-      this.logger.error('Error cleaning up expired magic signin tokens', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error cleaning up expired magic signin tokens', {
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to cleanup expired magic signin tokens',
-        undefined,
+        { originalError: error instanceof Error ? error.name : 'Unknown' },
         this.logger['correlationId']
       );
     }
@@ -369,11 +453,23 @@ export class MagicSigninTokenRepository {
 
       return count;
     } catch (error) {
-      this.logger.error('Error counting unused tokens for email in window', error instanceof Error ? error : new Error(String(error)), { email });
+      this.logger.error('Error counting unused tokens for email in window', {
+        email,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to count unused tokens for email in window',
-        { email },
+        { 
+          email,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -404,11 +500,23 @@ export class MagicSigninTokenRepository {
 
       return tokens;
     } catch (error) {
-      this.logger.error('Error finding recent magic signin tokens for user', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error finding recent magic signin tokens for user', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to find recent magic signin tokens for user',
-        { userId },
+        { 
+          userId,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
@@ -453,15 +561,28 @@ export class MagicSigninTokenRepository {
 
       return savedToken;
     } catch (error) {
+      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
       
-      this.logger.error('Error updating magic signin token location', error instanceof Error ? error : new Error(String(error)), { tokenId: id });
+      this.logger.error('Error updating magic signin token location', {
+        tokenId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
       throw new DatabaseError(
-        ErrorCode.DATABASE_ERROR,
+        errorCode,
         'Failed to update magic signin token location',
-        { tokenId: id },
+        { 
+          tokenId: id,
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
         this.logger['correlationId']
       );
     }
