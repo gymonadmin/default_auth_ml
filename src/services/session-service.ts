@@ -52,18 +52,26 @@ export class SessionService {
   private auditRepo: AuditLogRepository;
   private config: SessionServiceConfig;
   private logger: Logger;
+  private correlationId: string;
 
   constructor(dataSource: DataSource, correlationId?: string) {
     this.dataSource = dataSource;
-    this.logger = new Logger(correlationId);
+    this.correlationId = correlationId || 'unknown';
+    this.logger = new Logger(this.correlationId);
     
-    // Initialize repositories
-    this.sessionRepo = new SessionRepository(dataSource, correlationId);
-    this.userRepo = new UserRepository(dataSource, correlationId);
-    this.auditRepo = new AuditLogRepository(dataSource, correlationId);
+    // Initialize repositories with correlation ID
+    this.sessionRepo = new SessionRepository(dataSource, this.correlationId);
+    this.userRepo = new UserRepository(dataSource, this.correlationId);
+    this.auditRepo = new AuditLogRepository(dataSource, this.correlationId);
     
     // Load configuration
     this.config = this.loadConfiguration();
+
+    this.logger.debug('SessionService initialized', {
+      correlationId: this.correlationId,
+      hasDataSource: !!dataSource,
+      config: this.config,
+    });
   }
 
   /**
@@ -86,6 +94,7 @@ export class SessionService {
       this.logger.info('Creating new session', {
         userId: request.userId,
         ipAddress: request.ipAddress,
+        correlationId: this.correlationId,
       });
 
       // Validate input parameters
@@ -175,6 +184,7 @@ export class SessionService {
         sessionId: session.id,
         userId: session.userId,
         expiresAt: session.expiresAt,
+        correlationId: this.correlationId,
       });
 
       return { session, token: sessionToken };
@@ -534,6 +544,13 @@ export class SessionService {
         });
       }
     }
+  }
+
+  /**
+   * Get correlation ID for this service instance
+   */
+  getCorrelationId(): string {
+    return this.correlationId;
   }
 
   /**

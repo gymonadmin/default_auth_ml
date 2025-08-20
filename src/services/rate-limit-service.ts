@@ -14,10 +14,16 @@ export interface RateLimitResult {
 export class RateLimitService {
   private redis: Redis;
   private logger: Logger;
+  private correlationId: string;
 
   constructor(correlationId?: string) {
-    this.logger = new Logger(correlationId);
+    this.correlationId = correlationId || 'unknown';
+    this.logger = new Logger(this.correlationId);
     this.redis = this.createRedisConnection();
+
+    this.logger.debug('RateLimitService initialized', {
+      correlationId: this.correlationId,
+    });
   }
 
   /**
@@ -27,10 +33,16 @@ export class RateLimitService {
     try {
       const redisUrl = process.env.REDIS_URL;
       if (!redisUrl) {
+        this.logger.error('Missing Redis URL configuration', {
+          correlationId: this.correlationId,
+        });
         throw new Error('REDIS_URL environment variable is required');
       }
 
-      this.logger.debug('Creating Redis connection', { redisUrl: redisUrl.replace(/\/\/.*@/, '//***@') });
+      this.logger.debug('Creating Redis connection', { 
+        redisUrl: redisUrl.replace(/\/\/.*@/, '//***@'),
+        correlationId: this.correlationId,
+      });
 
       const redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
@@ -44,30 +56,50 @@ export class RateLimitService {
 
       // Handle connection events
       redis.on('connect', () => {
-        this.logger.info('Redis connected successfully');
+        this.logger.info('Redis connected successfully', {
+          correlationId: this.correlationId,
+        });
       });
 
       redis.on('error', (error) => {
-        this.logger.error('Redis connection error', error instanceof Error ? error : new Error(String(error)));
+        this.logger.error('Redis connection error', {
+          correlationId: this.correlationId,
+          error: error instanceof Error ? {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+          } : { message: String(error) },
+        });
       });
 
       redis.on('close', () => {
-        this.logger.warn('Redis connection closed');
+        this.logger.warn('Redis connection closed', {
+          correlationId: this.correlationId,
+        });
       });
 
       redis.on('reconnecting', () => {
-        this.logger.info('Redis reconnecting');
+        this.logger.info('Redis reconnecting', {
+          correlationId: this.correlationId,
+        });
       });
 
       return redis;
     } catch (error) {
-      this.logger.error('Failed to create Redis connection', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Failed to create Redis connection', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw new ServiceError(
         ErrorCode.REDIS_ERROR,
         'Failed to initialize rate limiting service',
         500,
         { error: error instanceof Error ? error.message : 'Unknown error' },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -85,6 +117,7 @@ export class RateLimitService {
         key: this.maskKey(key),
         limit,
         windowSeconds,
+        correlationId: this.correlationId,
       });
 
       const result = await this.getRateLimitStatus(key, limit, windowSeconds);
@@ -94,12 +127,19 @@ export class RateLimitService {
         allowed: result.allowed,
         count: result.count,
         remaining: result.remaining,
+        correlationId: this.correlationId,
       });
 
       return !result.allowed;
     } catch (error) {
-      this.logger.error('Rate limit check error', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Rate limit check error', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
       // In case of Redis error, allow the request (fail open)
@@ -115,6 +155,7 @@ export class RateLimitService {
       this.logger.debug('Incrementing rate limit', {
         key: this.maskKey(key),
         windowSeconds,
+        correlationId: this.correlationId,
       });
 
       const currentTime = Date.now();
@@ -126,8 +167,8 @@ export class RateLimitService {
       // Remove old entries outside the window
       pipeline.zremrangebyscore(key, 0, windowStart);
       
-      // Add current request
-      pipeline.zadd(key, currentTime, `${currentTime}-${Math.random()}`);
+      // Add current request with correlation ID for tracking
+      pipeline.zadd(key, currentTime, `${currentTime}-${this.correlationId}-${Math.random()}`);
       
       // Set expiration for the key
       pipeline.expire(key, windowSeconds);
@@ -147,12 +188,19 @@ export class RateLimitService {
       this.logger.debug('Rate limit incremented', {
         key: this.maskKey(key),
         count,
+        correlationId: this.correlationId,
       });
 
       return count;
     } catch (error) {
-      this.logger.error('Rate limit increment error', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Rate limit increment error', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
       throw new ServiceError(
@@ -160,7 +208,7 @@ export class RateLimitService {
         'Failed to update rate limit',
         500,
         { key: this.maskKey(key) },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -216,10 +264,25 @@ export class RateLimitService {
         retryAfter: allowed ? undefined : Math.ceil((resetTime - currentTime) / 1000),
       };
 
+      this.logger.debug('Rate limit status retrieved', {
+        key: this.maskKey(key),
+        result: {
+          ...result,
+          retryAfter: result.retryAfter,
+        },
+        correlationId: this.correlationId,
+      });
+
       return result;
     } catch (error) {
-      this.logger.error('Rate limit status error', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Rate limit status error', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
       // Return permissive result on error (fail open)
@@ -239,16 +302,24 @@ export class RateLimitService {
     try {
       this.logger.debug('Resetting rate limit', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
       });
 
       await this.redis.del(key);
 
       this.logger.info('Rate limit reset successfully', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
       });
     } catch (error) {
-      this.logger.error('Rate limit reset error', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Rate limit reset error', {
         key: this.maskKey(key),
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
       
       throw new ServiceError(
@@ -256,7 +327,7 @@ export class RateLimitService {
         'Failed to reset rate limit',
         500,
         { key: this.maskKey(key) },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -266,18 +337,30 @@ export class RateLimitService {
    */
   async getRateLimitKeys(pattern: string): Promise<string[]> {
     try {
-      this.logger.debug('Getting rate limit keys', { pattern });
+      this.logger.debug('Getting rate limit keys', { 
+        pattern,
+        correlationId: this.correlationId,
+      });
 
       const keys = await this.redis.keys(pattern);
 
       this.logger.debug('Rate limit keys found', {
         pattern,
         count: keys.length,
+        correlationId: this.correlationId,
       });
 
       return keys;
     } catch (error) {
-      this.logger.error('Get rate limit keys error', error instanceof Error ? error : new Error(String(error)), { pattern });
+      this.logger.error('Get rate limit keys error', {
+        pattern,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       return [];
     }
   }
@@ -287,7 +370,9 @@ export class RateLimitService {
    */
   async cleanupExpired(): Promise<number> {
     try {
-      this.logger.debug('Starting rate limit cleanup');
+      this.logger.debug('Starting rate limit cleanup', {
+        correlationId: this.correlationId,
+      });
 
       // Get all rate limit keys
       const keys = await this.redis.keys('*');
@@ -319,11 +404,19 @@ export class RateLimitService {
       this.logger.info('Rate limit cleanup completed', {
         keysProcessed: keys.length,
         entriesRemoved: cleanedCount,
+        correlationId: this.correlationId,
       });
 
       return cleanedCount;
     } catch (error) {
-      this.logger.error('Rate limit cleanup error', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Rate limit cleanup error', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       return 0;
     }
   }
@@ -333,16 +426,28 @@ export class RateLimitService {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      this.logger.debug('Performing Redis health check');
+      this.logger.debug('Performing Redis health check', {
+        correlationId: this.correlationId,
+      });
 
       const result = await this.redis.ping();
       const isHealthy = result === 'PONG';
 
-      this.logger.debug('Redis health check result', { isHealthy });
+      this.logger.debug('Redis health check result', { 
+        isHealthy,
+        correlationId: this.correlationId,
+      });
 
       return isHealthy;
     } catch (error) {
-      this.logger.error('Redis health check failed', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Redis health check failed', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       return false;
     }
   }
@@ -356,15 +461,33 @@ export class RateLimitService {
       const memory = await this.redis.info('memory');
       const stats = await this.redis.info('stats');
 
-      return {
+      const connectionInfo = {
         server: this.parseRedisInfo(info),
         memory: this.parseRedisInfo(memory),
         stats: this.parseRedisInfo(stats),
         status: this.redis.status,
+        correlationId: this.correlationId,
       };
+
+      this.logger.debug('Redis connection info retrieved', {
+        status: this.redis.status,
+        correlationId: this.correlationId,
+      });
+
+      return connectionInfo;
     } catch (error) {
-      this.logger.error('Failed to get Redis connection info', error instanceof Error ? error : new Error(String(error)));
-      return { error: 'Failed to get connection info' };
+      this.logger.error('Failed to get Redis connection info', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+      return { 
+        error: 'Failed to get connection info',
+        correlationId: this.correlationId,
+      };
     }
   }
 
@@ -396,15 +519,33 @@ export class RateLimitService {
   }
 
   /**
+   * Get correlation ID for this service instance
+   */
+  getCorrelationId(): string {
+    return this.correlationId;
+  }
+
+  /**
    * Close Redis connection
    */
   async close(): Promise<void> {
     try {
-      this.logger.debug('Closing Redis connection');
+      this.logger.debug('Closing Redis connection', {
+        correlationId: this.correlationId,
+      });
       await this.redis.quit();
-      this.logger.info('Redis connection closed');
+      this.logger.info('Redis connection closed', {
+        correlationId: this.correlationId,
+      });
     } catch (error) {
-      this.logger.error('Error closing Redis connection', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error closing Redis connection', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
     }
   }
 

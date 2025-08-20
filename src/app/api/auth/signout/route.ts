@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     // Initialize database connection
     const dataSource = await initializeDatabase();
     
-    // Create session service instance
+    // Create session service instance with correlation ID
     const sessionService = new SessionService(dataSource, correlationId);
 
     // Find session by token hash to get session ID

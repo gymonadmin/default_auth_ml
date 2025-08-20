@@ -25,15 +25,27 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
   private config: EmailServiceConfig;
   private logger: Logger;
+  private correlationId: string;
 
   constructor(correlationId?: string) {
-    this.logger = new Logger(correlationId);
+    this.correlationId = correlationId || 'unknown';
+    this.logger = new Logger(this.correlationId);
     
     // Validate required environment variables
     this.config = this.validateConfig();
     
     // Create transporter
     this.transporter = this.createTransporter();
+
+    this.logger.debug('EmailService initialized', {
+      correlationId: this.correlationId,
+      config: {
+        host: this.config.host,
+        port: this.config.port,
+        user: this.config.user,
+        from: this.config.from,
+      },
+    });
   }
 
   /**
@@ -50,12 +62,16 @@ export class EmailService {
 
     for (const [key, value] of Object.entries(requiredEnvVars)) {
       if (!value) {
+        this.logger.error('Missing required environment variable', {
+          missingVar: key,
+          correlationId: this.correlationId,
+        });
         throw new ServiceError(
           ErrorCode.CONFIGURATION_ERROR,
           `Missing required environment variable: ${key}`,
           500,
           { missingVar: key },
-          this.logger['correlationId']
+          this.correlationId
         );
       }
     }
@@ -78,6 +94,7 @@ export class EmailService {
         host: this.config.host,
         port: this.config.port,
         user: this.config.user,
+        correlationId: this.correlationId,
       });
 
       const transporter = nodemailer.createTransport({
@@ -98,16 +115,25 @@ export class EmailService {
         socketTimeout: 30000, // 30 seconds
       });
 
-      this.logger.info('Email transporter created successfully');
+      this.logger.info('Email transporter created successfully', {
+        correlationId: this.correlationId,
+      });
       return transporter;
     } catch (error) {
-      this.logger.error('Failed to create email transporter', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Failed to create email transporter', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw new ServiceError(
         ErrorCode.EMAIL_SERVICE_ERROR,
         'Failed to initialize email service',
         500,
         { error: error instanceof Error ? error.message : 'Unknown error' },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -117,25 +143,38 @@ export class EmailService {
    */
   async verifyConnection(): Promise<boolean> {
     try {
-      this.logger.debug('Verifying email service connection');
+      this.logger.debug('Verifying email service connection', {
+        correlationId: this.correlationId,
+      });
       
       const verified = await this.transporter.verify();
       
       if (verified) {
-        this.logger.info('Email service connection verified successfully');
+        this.logger.info('Email service connection verified successfully', {
+          correlationId: this.correlationId,
+        });
         return true;
       } else {
-        this.logger.error('Email service connection verification failed');
+        this.logger.error('Email service connection verification failed', {
+          correlationId: this.correlationId,
+        });
         return false;
       }
     } catch (error) {
-      this.logger.error('Email service connection verification error', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Email service connection verification error', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw new ServiceError(
         ErrorCode.EMAIL_SERVICE_ERROR,
         'Failed to verify email service connection',
         500,
         { error: error instanceof Error ? error.message : 'Unknown error' },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -152,6 +191,8 @@ export class EmailService {
         email: data.email,
         isNewUser: data.isNewUser,
         expiresInMinutes: data.expiresInMinutes,
+        hasRedirectUrl: !!data.redirectUrl,
+        correlationId: this.correlationId,
       });
 
       const { subject, html, text } = this.generateMagicLinkEmailContent(data);
@@ -166,7 +207,8 @@ export class EmailService {
         headers: {
           'X-Priority': '1',
           'X-MSMail-Priority': 'High',
-          Importance: 'high',
+          'Importance': 'high',
+          'X-Correlation-ID': this.correlationId,
         },
         // Tracking
         messageId: this.generateMessageId(),
@@ -178,10 +220,17 @@ export class EmailService {
         email: data.email,
         messageId: info.messageId,
         response: info.response,
+        correlationId: this.correlationId,
       });
     } catch (error) {
-      this.logger.error('Failed to send magic link email', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Failed to send magic link email', {
         email: data.email,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
 
       // Wrap underlying transporter error in a ServiceError so higher layers can react
@@ -193,7 +242,7 @@ export class EmailService {
           email: data.email,
           error: error instanceof Error ? error.message : 'Unknown error'
         },
-        this.logger['correlationId']
+        this.correlationId
       );
     }
   }
@@ -216,6 +265,14 @@ export class EmailService {
     const subject = data.isNewUser 
       ? `Welcome to ${appName} - Complete your account setup`
       : `Sign in to ${appName}`;
+
+    this.logger.debug('Generating email content', {
+      subject,
+      greeting,
+      actionText,
+      isNewUser: data.isNewUser,
+      correlationId: this.correlationId,
+    });
 
     // HTML email template
     const html = `
@@ -309,6 +366,12 @@ export class EmailService {
             font-size: 14px;
             color: #6b7280;
         }
+        .correlation-id {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #9ca3af;
+            font-family: monospace;
+        }
         @media only screen and (max-width: 600px) {
             .container {
                 margin: 20px;
@@ -344,6 +407,9 @@ export class EmailService {
             <p>This email was sent from ${appName}</p>
             <p>If you have trouble clicking the button, copy and paste this link into your browser:</p>
             <p style="word-break: break-all; color: #3b82f6;">${data.magicLink}</p>
+            <div class="correlation-id">
+                Request ID: ${this.correlationId}
+            </div>
         </div>
     </div>
 </body>
@@ -363,6 +429,8 @@ Security Notice: If you didn't request this email, you can safely ignore it. Thi
 
 ---
 ${appName}
+
+Request ID: ${this.correlationId}
 `;
 
     return { subject, html, text };
@@ -389,7 +457,21 @@ ${appName}
     const timestamp = Date.now();
     const random = Math.random().toString(36).substr(2, 9);
     const domain = this.config.from.split('@')[1] || 'localhost';
-    return `<${timestamp}.${random}@${domain}>`;
+    const messageId = `<${timestamp}.${random}.${this.correlationId}@${domain}>`;
+    
+    this.logger.debug('Generated message ID', {
+      messageId,
+      correlationId: this.correlationId,
+    });
+    
+    return messageId;
+  }
+
+  /**
+   * Get correlation ID for this service instance
+   */
+  getCorrelationId(): string {
+    return this.correlationId;
   }
 
   /**
@@ -397,11 +479,22 @@ ${appName}
    */
   async close(): Promise<void> {
     try {
-      this.logger.debug('Closing email service connections');
+      this.logger.debug('Closing email service connections', {
+        correlationId: this.correlationId,
+      });
       this.transporter.close();
-      this.logger.info('Email service connections closed');
+      this.logger.info('Email service connections closed', {
+        correlationId: this.correlationId,
+      });
     } catch (error) {
-      this.logger.error('Error closing email service connections', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Error closing email service connections', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
     }
   }
 

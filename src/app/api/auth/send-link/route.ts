@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     // Initialize database connection
     const dataSource = await initializeDatabase();
     
-    // Create auth service instance
+    // Create auth service instance with correlation ID
     const authService = new AuthService(dataSource, correlationId);
 
     // Send magic link

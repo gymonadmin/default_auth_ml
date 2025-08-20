@@ -25,7 +25,7 @@ import {
   validateBusinessEmail 
 } from '@/lib/utils/email';
 import { createExpirationDate, hasExpired } from '@/lib/utils/time';
-import { AuthError, ValidationError, ErrorCode } from '@/lib/errors/error-codes';
+import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export interface SendMagicLinkRequest {
@@ -84,24 +84,32 @@ export class AuthService {
   private rateLimitService: RateLimitService;
   private config: AuthServiceConfig;
   private logger: Logger;
+  private correlationId: string;
 
   constructor(dataSource: DataSource, correlationId?: string) {
     this.dataSource = dataSource;
-    this.logger = new Logger(correlationId);
+    this.correlationId = correlationId || 'unknown';
+    this.logger = new Logger(this.correlationId);
     
-    // Initialize repositories
-    this.userRepo = new UserRepository(dataSource, correlationId);
-    this.profileRepo = new ProfileRepository(dataSource, correlationId);
-    this.sessionRepo = new SessionRepository(dataSource, correlationId);
-    this.tokenRepo = new MagicSigninTokenRepository(dataSource, correlationId);
-    this.auditRepo = new AuditLogRepository(dataSource, correlationId);
+    // Initialize repositories with correlation ID
+    this.userRepo = new UserRepository(dataSource, this.correlationId);
+    this.profileRepo = new ProfileRepository(dataSource, this.correlationId);
+    this.sessionRepo = new SessionRepository(dataSource, this.correlationId);
+    this.tokenRepo = new MagicSigninTokenRepository(dataSource, this.correlationId);
+    this.auditRepo = new AuditLogRepository(dataSource, this.correlationId);
     
-    // Initialize services
-    this.emailService = new EmailService(correlationId);
-    this.rateLimitService = new RateLimitService(correlationId);
+    // Initialize services with correlation ID
+    this.emailService = new EmailService(this.correlationId);
+    this.rateLimitService = new RateLimitService(this.correlationId);
     
     // Load configuration
     this.config = this.loadConfiguration();
+
+    this.logger.debug('AuthService initialized', {
+      correlationId: this.correlationId,
+      hasDataSource: !!dataSource,
+      config: this.config,
+    });
   }
 
   /**
@@ -128,6 +136,7 @@ export class AuthService {
         email: request.email,
         hasRedirectUrl: !!request.redirectUrl,
         ipAddress: request.ipAddress,
+        correlationId: this.correlationId,
       });
 
       // Validate and normalize email
@@ -146,6 +155,7 @@ export class AuthService {
         isNewUser,
         userExists: !!existingUser,
         isVerified: existingUser?.isVerified,
+        correlationId: this.correlationId,
       });
 
       // Generate magic link token
@@ -162,17 +172,18 @@ export class AuthService {
 
       // Start database transaction
       await this.dataSource.transaction(async (manager) => {
+        // Create new repository instances with the same correlation ID for the transaction
         const transactionUserRepo = new UserRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionTokenRepo = new MagicSigninTokenRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionAuditRepo = new AuditLogRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
 
         let userId: string | undefined;
@@ -188,6 +199,7 @@ export class AuthService {
           this.logger.info('Created new unverified user', {
             userId: newUser.id,
             email: normalizedEmail,
+            correlationId: this.correlationId,
           });
         } else {
           userId = existingUser!.id;
@@ -198,6 +210,7 @@ export class AuthService {
           this.logger.debug('Invalidated existing tokens', {
             email: normalizedEmail,
             userId,
+            correlationId: this.correlationId,
           });
         }
 
@@ -230,7 +243,7 @@ export class AuthService {
             userAgent: request.userAgent || undefined,
             country: request.country || undefined,
             city: request.city || undefined,
-            correlationId: this.logger['correlationId'],
+            correlationId: this.correlationId,
           }
         );
       });
@@ -251,6 +264,7 @@ export class AuthService {
         isNewUser,
         duration,
         expiresAt: expiresAt.toISOString(),
+        correlationId: this.correlationId,
       });
 
       return {
@@ -265,9 +279,15 @@ export class AuthService {
     } catch (error) {
       const duration = Date.now() - startTime;
       
-      this.logger.error('Failed to send magic link', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Failed to send magic link', {
         email: request.email,
         duration,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
 
       // Log audit failure
@@ -280,11 +300,18 @@ export class AuthService {
             context: { error: error instanceof Error ? error.name : 'UnknownError' },
             ipAddress: request.ipAddress,
             userAgent: request.userAgent,
-            correlationId: this.logger['correlationId'],
+            correlationId: this.correlationId,
           }
         );
       } catch (auditError) {
-        this.logger.error('Failed to log audit failure', auditError instanceof Error ? auditError : new Error(String(auditError)));
+        this.logger.error('Failed to log audit failure', {
+          correlationId: this.correlationId,
+          error: auditError instanceof Error ? {
+            message: auditError.message,
+            name: auditError.name,
+            stack: auditError.stack,
+          } : { message: String(auditError) },
+        });
       }
 
       throw error;
@@ -302,6 +329,7 @@ export class AuthService {
         tokenLength: request.token.length,
         hasProfile: !!request.profile,
         ipAddress: request.ipAddress,
+        correlationId: this.correlationId,
       });
 
       // Find and validate token
@@ -314,7 +342,7 @@ export class AuthService {
           'Invalid or expired magic link',
           401,
           { tokenHash: tokenHash.substring(0, 8) },
-          this.logger['correlationId'],
+          this.correlationId,
           'The magic link is invalid or has expired. Please request a new one.'
         );
       }
@@ -326,7 +354,7 @@ export class AuthService {
           'Invalid magic link token',
           401,
           { tokenId: magicToken.id },
-          this.logger['correlationId'],
+          this.correlationId,
           'The magic link is invalid. Please request a new one.'
         );
       }
@@ -341,7 +369,7 @@ export class AuthService {
             tokenId: magicToken.id,
             expiresAt: magicToken.expiresAt.toISOString(),
           },
-          this.logger['correlationId'],
+          this.correlationId,
           'The magic link has expired. Please request a new one.'
         );
       }
@@ -356,7 +384,7 @@ export class AuthService {
             tokenId: magicToken.id,
             usedAt: magicToken.usedAt?.toISOString(),
           },
-          this.logger['correlationId'],
+          this.correlationId,
           'The magic link has already been used. Please request a new one.'
         );
       }
@@ -368,29 +396,31 @@ export class AuthService {
         email: magicToken.email,
         isNewUser,
         userId: magicToken.userId,
+        correlationId: this.correlationId,
       });
 
       // Start database transaction for user verification and session creation
       const result = await this.dataSource.transaction(async (manager) => {
+        // Create new repository instances with the same correlation ID for the transaction
         const transactionUserRepo = new UserRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionProfileRepo = new ProfileRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionSessionRepo = new SessionRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionTokenRepo = new MagicSigninTokenRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
         const transactionAuditRepo = new AuditLogRepository(
           { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
-          this.logger['correlationId']
+          this.correlationId
         );
 
         let user: User;
@@ -404,7 +434,7 @@ export class AuthService {
               'User account not found',
               404,
               { email: magicToken.email },
-              this.logger['correlationId']
+              this.correlationId
             );
           }
 
@@ -413,8 +443,10 @@ export class AuthService {
           
           // Validate and create profile if provided (new users should provide profile)
           if (!request.profile?.firstName || !request.profile?.lastName) {
-            throw new ValidationError(
+            throw new AuthError(
+              ErrorCode.MISSING_REQUIRED_FIELD,
               'Profile details are required for new accounts',
+              400,
               { 
                 email: user.email,
                 missingFields: {
@@ -422,7 +454,7 @@ export class AuthService {
                   lastName: !request.profile?.lastName,
                 }
               },
-              this.logger['correlationId'],
+              this.correlationId,
               'Please provide your first and last name to complete account setup.'
             );
           }
@@ -441,6 +473,7 @@ export class AuthService {
             userId: user.id,
             email: user.email,
             hasProfile: true,
+            correlationId: this.correlationId,
           });
 
         } else {
@@ -452,7 +485,7 @@ export class AuthService {
               'User account not found',
               404,
               { userId: magicToken.userId },
-              this.logger['correlationId']
+              this.correlationId
             );
           }
 
@@ -462,7 +495,7 @@ export class AuthService {
               'Account not verified',
               401,
               { userId: foundUser.id },
-              this.logger['correlationId']
+              this.correlationId
             );
           }
 
@@ -502,7 +535,7 @@ export class AuthService {
               userAgent: request.userAgent,
               country: request.country,
               city: request.city,
-              correlationId: this.logger['correlationId'],
+              correlationId: this.correlationId,
             }
           );
         }
@@ -521,7 +554,7 @@ export class AuthService {
             userAgent: request.userAgent || undefined,
             country: request.country || undefined,
             city: request.city || undefined,
-            correlationId: this.logger['correlationId'],
+            correlationId: this.correlationId,
           }
         );
 
@@ -536,7 +569,7 @@ export class AuthService {
             },
             ipAddress: request.ipAddress || undefined,
             userAgent: request.userAgent || undefined,
-            correlationId: this.logger['correlationId'],
+            correlationId: this.correlationId,
           }
         );
 
@@ -550,6 +583,7 @@ export class AuthService {
         isNewUser,
         sessionId: result.session.id,
         duration,
+        correlationId: this.correlationId,
       });
 
       // Set session token in result
@@ -567,9 +601,15 @@ export class AuthService {
     } catch (error) {
       const duration = Date.now() - startTime;
       
-      this.logger.error('Magic link verification failed', error instanceof Error ? error : new Error(String(error)), {
+      this.logger.error('Magic link verification failed', {
         tokenLength: request.token.length,
         duration,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
       });
 
       // Log audit failure for specific email if we can determine it
@@ -591,12 +631,19 @@ export class AuthService {
               },
               ipAddress: request.ipAddress,
               userAgent: request.userAgent,
-              correlationId: this.logger['correlationId'],
+              correlationId: this.correlationId,
             }
           );
         }
       } catch (auditError) {
-        this.logger.error('Failed to log audit failure', auditError instanceof Error ? auditError : new Error(String(auditError)));
+        this.logger.error('Failed to log audit failure', {
+          correlationId: this.correlationId,
+          error: auditError instanceof Error ? {
+            message: auditError.message,
+            name: auditError.name,
+            stack: auditError.stack,
+          } : { message: String(auditError) },
+        });
       }
 
       throw error;
@@ -618,14 +665,18 @@ export class AuthService {
     );
 
     if (emailLimited) {
-      this.logger.warn('Rate limit exceeded for email', { email, ipAddress });
+      this.logger.warn('Rate limit exceeded for email', { 
+        email, 
+        ipAddress,
+        correlationId: this.correlationId,
+      });
       
       throw new AuthError(
         ErrorCode.RATE_LIMIT_EXCEEDED,
         'Too many magic link requests',
         429,
         { email, ipAddress },
-        this.logger['correlationId'],
+        this.correlationId,
         'Too many sign-in attempts. Please wait before trying again.'
       );
     }
@@ -639,14 +690,18 @@ export class AuthService {
       );
 
       if (ipLimited) {
-        this.logger.warn('Rate limit exceeded for IP', { email, ipAddress });
+        this.logger.warn('Rate limit exceeded for IP', { 
+          email, 
+          ipAddress,
+          correlationId: this.correlationId,
+        });
         
         throw new AuthError(
           ErrorCode.RATE_LIMIT_EXCEEDED,
           'Too many requests from this IP',
           429,
           { email, ipAddress },
-          this.logger['correlationId'],
+          this.correlationId,
           'Too many requests from your location. Please wait before trying again.'
         );
       }
@@ -666,6 +721,7 @@ export class AuthService {
     try {
       this.logger.debug('Validating session token', {
         tokenLength: sessionToken.length,
+        correlationId: this.correlationId,
       });
 
       const tokenHash = await hashToken(sessionToken);
@@ -677,13 +733,16 @@ export class AuthService {
           isValid: session?.isValid,
           isExpired: session?.isExpired,
           isActive: session?.isActive,
+          correlationId: this.correlationId,
         });
         return null;
       }
 
       // Additional validation using timing-safe comparison
       if (!verifyTokenHash(sessionToken, session.tokenHash)) {
-        this.logger.debug('Session token verification failed');
+        this.logger.debug('Session token verification failed', {
+          correlationId: this.correlationId,
+        });
         return null;
       }
 
@@ -692,6 +751,7 @@ export class AuthService {
         this.logger.debug('Session has expired', {
           sessionId: session.id,
           expiresAt: session.expiresAt.toISOString(),
+          correlationId: this.correlationId,
         });
         return null;
       }
@@ -703,6 +763,7 @@ export class AuthService {
         sessionId: session.id,
         userId: session.userId,
         lastAccessed: session.lastAccessedAt,
+        correlationId: this.correlationId,
       });
 
       return {
@@ -711,7 +772,14 @@ export class AuthService {
       };
 
     } catch (error) {
-      this.logger.error('Session validation error', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Session validation error', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       return null;
     }
   }
@@ -724,6 +792,7 @@ export class AuthService {
       this.logger.info('Starting sign out process', {
         tokenLength: sessionToken.length,
         ipAddress,
+        correlationId: this.correlationId,
       });
 
       const tokenHash = await hashToken(sessionToken);
@@ -743,7 +812,7 @@ export class AuthService {
             },
             ipAddress: ipAddress || undefined,
             userAgent: userAgent || undefined,
-            correlationId: this.logger['correlationId'],
+            correlationId: this.correlationId,
           }
         );
 
@@ -751,15 +820,24 @@ export class AuthService {
           sessionId: session.id,
           userId: session.userId,
           email: session.user!.email,
+          correlationId: this.correlationId,
         });
       } else {
         this.logger.debug('Session not found for sign out', {
           tokenHashPrefix: tokenHash.substring(0, 8),
+          correlationId: this.correlationId,
         });
       }
 
     } catch (error) {
-      this.logger.error('Sign out error', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Sign out error', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw error;
     }
   }
@@ -769,7 +847,9 @@ export class AuthService {
    */
   async cleanupExpired(): Promise<{ expiredTokens: number; expiredSessions: number }> {
     try {
-      this.logger.debug('Starting cleanup of expired tokens and sessions');
+      this.logger.debug('Starting cleanup of expired tokens and sessions', {
+        correlationId: this.correlationId,
+      });
 
       const [expiredTokens, expiredSessions] = await Promise.all([
         this.tokenRepo.cleanupExpired(),
@@ -779,12 +859,20 @@ export class AuthService {
       this.logger.info('Cleanup completed', {
         expiredTokens,
         expiredSessions,
+        correlationId: this.correlationId,
       });
 
       return { expiredTokens, expiredSessions };
 
     } catch (error) {
-      this.logger.error('Cleanup error', error instanceof Error ? error : new Error(String(error)));
+      this.logger.error('Cleanup error', {
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw error;
     }
   }
@@ -794,19 +882,31 @@ export class AuthService {
    */
   async getUserProfile(userId: string): Promise<Profile | null> {
     try {
-      this.logger.debug('Getting user profile', { userId });
+      this.logger.debug('Getting user profile', { 
+        userId,
+        correlationId: this.correlationId,
+      });
       
       const profile = await this.profileRepo.findByUserId(userId);
       
       this.logger.debug('User profile retrieved', { 
         userId, 
         found: !!profile,
-        profileId: profile?.id 
+        profileId: profile?.id,
+        correlationId: this.correlationId,
       });
       
       return profile;
     } catch (error) {
-      this.logger.error('Error getting user profile', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error getting user profile', {
+        userId,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw error;
     }
   }
@@ -816,7 +916,10 @@ export class AuthService {
    */
   async getMagicTokenDetails(tokenId: string): Promise<MagicSigninToken | null> {
     try {
-      this.logger.debug('Getting magic token details', { tokenId });
+      this.logger.debug('Getting magic token details', { 
+        tokenId,
+        correlationId: this.correlationId,
+      });
       
       const token = await this.tokenRepo.findById(tokenId);
       
@@ -824,12 +927,21 @@ export class AuthService {
         tokenId, 
         found: !!token,
         isUsed: token?.isUsed,
-        isValid: token?.isValid 
+        isValid: token?.isValid,
+        correlationId: this.correlationId,
       });
       
       return token;
     } catch (error) {
-      this.logger.error('Error getting magic token details', error instanceof Error ? error : new Error(String(error)), { tokenId });
+      this.logger.error('Error getting magic token details', {
+        tokenId,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw error;
     }
   }
@@ -839,20 +951,40 @@ export class AuthService {
    */
   async getUserAuditLogs(userId: string, limit: number = 10): Promise<AuditLog[]> {
     try {
-      this.logger.debug('Getting user audit logs', { userId, limit });
+      this.logger.debug('Getting user audit logs', { 
+        userId, 
+        limit,
+        correlationId: this.correlationId,
+      });
       
       const auditLogs = await this.auditRepo.findRecentForUser(userId, limit);
       
       this.logger.debug('User audit logs retrieved', { 
         userId, 
-        count: auditLogs.length 
+        count: auditLogs.length,
+        correlationId: this.correlationId,
       });
       
       return auditLogs;
     } catch (error) {
-      this.logger.error('Error getting user audit logs', error instanceof Error ? error : new Error(String(error)), { userId });
+      this.logger.error('Error getting user audit logs', {
+        userId,
+        correlationId: this.correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
       throw error;
     }
+  }
+
+  /**
+   * Get correlation ID for this service instance
+   */
+  getCorrelationId(): string {
+    return this.correlationId;
   }
 
   /**
