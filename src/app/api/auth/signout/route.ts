@@ -9,6 +9,13 @@ import { Logger } from '@/lib/config/logger';
 import { getSessionTokenFromCookies, clearSessionCookie } from '@/lib/utils/cookies';
 import { hashToken } from '@/lib/utils/crypto';
 import { setCSPHeaders } from '@/lib/utils/csp';
+import { 
+  validateCSRFToken, 
+  getCSRFTokenFromHeaders, 
+  getCSRFTokenFromCookies,
+  clearCSRFCookie
+} from '@/lib/utils/csrf';
+import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 
 export async function POST(request: NextRequest) {
   // Get correlation ID from middleware or generate new one
@@ -23,6 +30,27 @@ export async function POST(request: NextRequest) {
       origin: request.headers.get('origin'),
     });
 
+    // Validate CSRF token (middleware should have caught this, but double-check)
+    const headerToken = getCSRFTokenFromHeaders(request.headers);
+    const cookieToken = getCSRFTokenFromCookies(request.headers.get('cookie'));
+    
+    if (!validateCSRFToken(headerToken, cookieToken)) {
+      logger.warn('CSRF token validation failed in signout route', {
+        hasHeaderToken: !!headerToken,
+        hasCookieToken: !!cookieToken,
+        correlationId,
+      });
+      
+      throw new AuthError(
+        ErrorCode.FORBIDDEN,
+        'Invalid CSRF token',
+        403,
+        undefined,
+        correlationId,
+        'Security validation failed. Please refresh and try again.'
+      );
+    }
+
     // Get session token from cookies
     const sessionToken = getSessionTokenFromCookies(request.cookies);
     
@@ -35,9 +63,12 @@ export async function POST(request: NextRequest) {
         message: 'Signed out successfully',
       });
       
-      // Clear session cookie
-      const clearCookieHeader = clearSessionCookie();
-      response.headers.set('Set-Cookie', clearCookieHeader);
+      // Clear both session and CSRF cookies
+      const clearSessionCookieHeader = clearSessionCookie();
+      const clearCSRFHeader = clearCSRFCookie();
+      
+      response.headers.set('Set-Cookie', clearSessionCookieHeader);
+      response.headers.append('Set-Cookie', clearCSRFHeader);
       response.headers.set('X-Correlation-ID', correlationId);
       
       // Add security headers including CSP
@@ -88,9 +119,12 @@ export async function POST(request: NextRequest) {
       message: 'Signed out successfully',
     });
 
-    // Clear session cookie
-    const clearCookieHeader = clearSessionCookie();
-    response.headers.set('Set-Cookie', clearCookieHeader);
+    // Clear both session and CSRF cookies
+    const clearSessionCookieHeader = clearSessionCookie();
+    const clearCSRFHeader = clearCSRFCookie();
+    
+    response.headers.set('Set-Cookie', clearSessionCookieHeader);
+    response.headers.append('Set-Cookie', clearCSRFHeader);
     
     // Add correlation ID header
     response.headers.set('X-Correlation-ID', correlationId);
@@ -110,10 +144,13 @@ export async function POST(request: NextRequest) {
       } : { message: String(error) },
     });
 
-    // Even on error, clear the session cookie
+    // Even on error, clear both cookies
     const errorResponse = handleApiError(error, correlationId);
-    const clearCookieHeader = clearSessionCookie();
-    errorResponse.headers.set('Set-Cookie', clearCookieHeader);
+    const clearSessionCookieHeader = clearSessionCookie();
+    const clearCSRFHeader = clearCSRFCookie();
+    
+    errorResponse.headers.set('Set-Cookie', clearSessionCookieHeader);
+    errorResponse.headers.append('Set-Cookie', clearCSRFHeader);
     
     return errorResponse;
   }

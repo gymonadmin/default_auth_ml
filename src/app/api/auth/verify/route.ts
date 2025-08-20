@@ -9,6 +9,13 @@ import { initializeDatabase } from '@/lib/config/database';
 import { Logger } from '@/lib/config/logger';
 import { createSecureSessionCookie, clearSessionCookie } from '@/lib/utils/cookies';
 import { setCSPHeaders } from '@/lib/utils/csp';
+import { 
+  validateCSRFToken, 
+  getCSRFTokenFromHeaders, 
+  getCSRFTokenFromCookies,
+  clearCSRFCookie
+} from '@/lib/utils/csrf';
+import { AuthError, ErrorCode } from '@/lib/errors/error-codes';
 
 export async function POST(request: NextRequest) {
   // Get correlation ID from middleware or generate new one
@@ -22,6 +29,27 @@ export async function POST(request: NextRequest) {
       userAgent: request.headers.get('user-agent'),
       origin: request.headers.get('origin'),
     });
+
+    // Validate CSRF token (middleware should have caught this, but double-check)
+    const headerToken = getCSRFTokenFromHeaders(request.headers);
+    const cookieToken = getCSRFTokenFromCookies(request.headers.get('cookie'));
+    
+    if (!validateCSRFToken(headerToken, cookieToken)) {
+      logger.warn('CSRF token validation failed in verify route', {
+        hasHeaderToken: !!headerToken,
+        hasCookieToken: !!cookieToken,
+        correlationId,
+      });
+      
+      throw new AuthError(
+        ErrorCode.FORBIDDEN,
+        'Invalid CSRF token',
+        403,
+        undefined,
+        correlationId,
+        'Security validation failed. Please refresh and try again.'
+      );
+    }
 
     // Parse and validate request body
     const body = await request.json();
@@ -91,8 +119,14 @@ export async function POST(request: NextRequest) {
 
     // Set secure session cookie
     const sessionToken = (result.session as any).token;
-    const cookieHeader = createSecureSessionCookie(sessionToken, result.session.expiresAt);
-    response.headers.set('Set-Cookie', cookieHeader);
+    const sessionCookieHeader = createSecureSessionCookie(sessionToken, result.session.expiresAt);
+    
+    // Clear CSRF cookie since we're establishing a new session
+    const clearCSRFHeader = clearCSRFCookie();
+    
+    // Set multiple cookies using array syntax
+    response.headers.set('Set-Cookie', sessionCookieHeader);
+    response.headers.append('Set-Cookie', clearCSRFHeader);
 
     // Add correlation ID header
     response.headers.set('X-Correlation-ID', correlationId);
@@ -112,10 +146,13 @@ export async function POST(request: NextRequest) {
       } : { message: String(error) },
     });
 
-    // Clear any existing session cookie on error
+    // Clear any existing cookies on error
     const errorResponse = handleApiError(error, correlationId);
-    const clearCookieHeader = clearSessionCookie();
-    errorResponse.headers.set('Set-Cookie', clearCookieHeader);
+    const clearSessionCookieHeader = clearSessionCookie();
+    const clearCSRFHeader = clearCSRFCookie();
+    
+    errorResponse.headers.set('Set-Cookie', clearSessionCookieHeader);
+    errorResponse.headers.append('Set-Cookie', clearCSRFHeader);
     
     return errorResponse;
   }

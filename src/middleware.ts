@@ -5,6 +5,15 @@ import { generateCSPNonce, setCSPHeaders } from '@/lib/utils/csp';
 import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { getClientIP } from '@/lib/utils/ip';
 import { Logger } from '@/lib/config/logger';
+import { 
+  createCSRFTokenPair, 
+  validateCSRFToken, 
+  getCSRFTokenFromHeaders, 
+  getCSRFTokenFromCookies,
+  methodRequiresCSRF,
+  routeRequiresCSRF,
+  clearCSRFCookie
+} from '@/lib/utils/csrf';
 
 // Configuration from environment variables
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || ['http://localhost:3000'];
@@ -101,7 +110,7 @@ function addCorsHeaders(response: NextResponse, request: NextRequest): void {
   
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   response.headers.set('Access-Control-Allow-Headers', 
-    'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Correlation-ID'
+    'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Correlation-ID, X-CSRF-Token'
   );
   response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
 }
@@ -141,6 +150,36 @@ function addRateLimitHeaders(
     const retryAfter = Math.ceil((resetTime - Date.now()) / 1000);
     response.headers.set('Retry-After', retryAfter.toString());
   }
+}
+
+/**
+ * Handle CSRF validation for protected routes
+ */
+function validateCSRFProtection(request: NextRequest, logger: Logger): boolean {
+  const pathname = request.nextUrl.pathname;
+  const method = request.method;
+  
+  // Only check CSRF for state-changing methods on protected routes
+  if (!methodRequiresCSRF(method) || !routeRequiresCSRF(pathname)) {
+    return true;
+  }
+  
+  // Get CSRF tokens from headers and cookies
+  const headerToken = getCSRFTokenFromHeaders(request.headers);
+  const cookieToken = getCSRFTokenFromCookies(request.headers.get('cookie'));
+  
+  const isValid = validateCSRFToken(headerToken, cookieToken);
+  
+  if (!isValid) {
+    logger.warn('CSRF validation failed', {
+      pathname,
+      method,
+      hasHeaderToken: !!headerToken,
+      hasCookieToken: !!cookieToken,
+    });
+  }
+  
+  return isValid;
 }
 
 /**
@@ -203,17 +242,56 @@ export function middleware(request: NextRequest) {
       { status: 429 }
     );
   } else {
-    // Rate limit OK, continue with request
-    response = NextResponse.next({
-      request: {
-        headers: new Headers({
-          ...Object.fromEntries(request.headers.entries()),
-          'X-Correlation-ID': correlationId,
-          'X-Client-IP': clientIP,
-          'X-CSP-Nonce': nonce, // Forward nonce to API routes if needed
-        })
+    // Validate CSRF for protected routes
+    const csrfValid = validateCSRFProtection(request, logger);
+    
+    if (!csrfValid) {
+      logger.warn('CSRF validation failed', {
+        clientIP,
+        pathname,
+        method: request.method,
+      });
+      
+      response = NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'CSRF_TOKEN_INVALID',
+            message: 'Invalid CSRF token',
+            correlationId,
+          },
+          timestamp: new Date().toISOString()
+        },
+        { status: 403 }
+      );
+      
+      // Clear CSRF cookie on validation failure
+      response.headers.set('Set-Cookie', clearCSRFCookie());
+    } else {
+      // Rate limit and CSRF OK, continue with request
+      response = NextResponse.next({
+        request: {
+          headers: new Headers({
+            ...Object.fromEntries(request.headers.entries()),
+            'X-Correlation-ID': correlationId,
+            'X-Client-IP': clientIP,
+            'X-CSP-Nonce': nonce, // Forward nonce to API routes if needed
+          })
+        }
+      });
+      
+      // Generate CSRF token for new sessions (GET requests to auth routes)
+      if (request.method === 'GET' && pathname.startsWith('/api/auth/')) {
+        const { token, cookie } = createCSRFTokenPair();
+        response.headers.set('Set-Cookie', cookie);
+        response.headers.set('X-CSRF-Token', token);
+        
+        logger.debug('Generated CSRF token for new session', {
+          pathname,
+          tokenLength: token.length,
+        });
       }
-    });
+    }
   }
   
   // Add all standard headers to response
@@ -229,6 +307,7 @@ export function middleware(request: NextRequest) {
     statusCode: response.status,
     duration: Date.now() - startTime,
     rateLimitRemaining: rateLimit.remaining,
+    csrfRequired: methodRequiresCSRF(request.method) && routeRequiresCSRF(pathname),
   });
   
   return response;

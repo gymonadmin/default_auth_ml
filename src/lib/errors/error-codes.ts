@@ -47,6 +47,8 @@ export enum ErrorCode {
   FORBIDDEN = 'FORBIDDEN',
   INVALID_SIGNATURE = 'INVALID_SIGNATURE',
   SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
+  CSRF_TOKEN_INVALID = 'CSRF_TOKEN_INVALID',
+  CSRF_TOKEN_MISSING = 'CSRF_TOKEN_MISSING',
   
   // Operation errors
   OPERATION_FAILED = 'OPERATION_FAILED',
@@ -177,6 +179,28 @@ export class ServiceError extends Error implements AppError {
     this.details = details;
     this.correlationId = correlationId;
     this.userMessage = 'A service error occurred. Please try again later.';
+  }
+}
+
+export class CSRFError extends Error implements AppError {
+  public readonly code: ErrorCode;
+  public readonly statusCode: number;
+  public readonly details?: Record<string, any>;
+  public readonly correlationId?: string;
+  public readonly userMessage?: string;
+
+  constructor(
+    message: string,
+    details?: Record<string, any>,
+    correlationId?: string
+  ) {
+    super(message);
+    this.name = 'CSRFError';
+    this.code = ErrorCode.CSRF_TOKEN_INVALID;
+    this.statusCode = 403;
+    this.details = details;
+    this.correlationId = correlationId;
+    this.userMessage = 'Security validation failed. Please refresh and try again.';
   }
 }
 
