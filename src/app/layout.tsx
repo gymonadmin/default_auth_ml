@@ -2,6 +2,8 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import './globals.css';
+import { ThemeProvider } from '@/components/providers/theme-provider';
+import { ToastProvider } from '@/components/providers/toast-provider';
 
 export const metadata: Metadata = {
   title: 'DocsBox Auth',
@@ -24,7 +26,7 @@ export default function RootLayout({
   const nonce = headersList.get('X-CSP-Nonce') || undefined;
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Meta tags for security */}
         <meta name="robots" content="noindex, nofollow" />
@@ -36,7 +38,15 @@ export default function RootLayout({
         )}
       </head>
       <body>
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <ToastProvider />
+        </ThemeProvider>
         
         {/* Any inline scripts would need the nonce */}
         {nonce && (

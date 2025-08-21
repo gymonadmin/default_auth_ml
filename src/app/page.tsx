@@ -2,15 +2,20 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loading, ButtonLoading } from '@/components/ui/loading';
 import { apiClient } from '@/lib/api/client';
 import { clientLogger } from '@/lib/config/client-logger';
 
 const logger = clientLogger.withCorrelationId('homepage');
 
 export default function HomePage() {
+  const router = useRouter();
   const [isTestingApi, setIsTestingApi] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
@@ -40,6 +45,10 @@ export default function HomePage() {
           message: 'API connection successful! Ready to proceed.',
           correlationId,
         });
+
+        toast.success('API connection successful!', {
+          description: 'The backend is responding correctly.',
+        });
       } else {
         logger.warn('API connectivity test failed', {
           correlationId,
@@ -50,6 +59,10 @@ export default function HomePage() {
           success: false,
           message: 'API connection failed. Please check server status.',
           correlationId,
+        });
+
+        toast.error('API connection failed', {
+          description: 'Unable to connect to the backend server.',
         });
       }
     } catch (error) {
@@ -64,19 +77,64 @@ export default function HomePage() {
         message: `Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         correlationId,
       });
+
+      toast.error('Connection error', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
     } finally {
       setIsTestingApi(false);
     }
   };
 
-  const handleContinueWithEmail = () => {
+  const handleContinueWithEmail = async () => {
+    setIsNavigating(true);
+    
     logger.info('User clicked Continue with Email', {
       navigatingTo: '/signin',
     });
+
+    // Show loading toast
+    toast.loading('Redirecting to sign in...', {
+      id: 'navigation',
+    });
+
+    try {
+      // Simulate brief loading for UX
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Navigate to signin page
+      router.push('/signin');
+      
+      // Dismiss loading toast and show success
+      toast.dismiss('navigation');
+      toast.success('Redirected successfully');
+      
+      logger.info('Navigation to signin completed', {
+        successful: true,
+      });
+    } catch (error) {
+      logger.error('Navigation failed', error as Error);
+      
+      toast.dismiss('navigation');
+      toast.error('Navigation failed', {
+        description: 'Unable to redirect to sign in page',
+      });
+      
+      setIsNavigating(false);
+    }
+  };
+
+  const handleTestToast = () => {
+    logger.info('User tested toast notifications');
     
-    // For now, just log the action - will implement navigation in Build 2
-    console.log('Navigating to /signin...');
-    alert('Navigation will be implemented in Build 2');
+    // Test different toast types
+    toast.info('Test notification', {
+      description: 'Toast system is working correctly!',
+    });
+    
+    setTimeout(() => {
+      toast.success('Toast test completed');
+    }, 1000);
   };
 
   return (
@@ -100,16 +158,64 @@ export default function HomePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <Button 
-              onClick={handleContinueWithEmail} 
+              onClick={handleContinueWithEmail}
+              disabled={isNavigating}
               className="w-full"
               size="lg"
             >
-              Continue with email
+              {isNavigating ? (
+                <>
+                  <ButtonLoading className="mr-2" />
+                  Redirecting...
+                </>
+              ) : (
+                'Continue with email'
+              )}
             </Button>
           </CardContent>
         </Card>
 
-        {/* API Test Section - For Build 1 testing only */}
+        {/* Build 2 Test Section */}
+        <Card className="border-dashed border-blue-200">
+          <CardHeader>
+            <CardTitle className="text-sm text-blue-600">
+              Build 2 - Navigation & Toast Test
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Test toast notifications and loading states
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Button 
+                onClick={handleTestToast}
+                variant="outline"
+                size="sm"
+              >
+                Test Toast
+              </Button>
+              
+              <Button 
+                onClick={() => toast.error('Error test', { description: 'This is a test error' })}
+                variant="outline"
+                size="sm"
+              >
+                Test Error
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium">Loading Component Test:</p>
+              <div className="flex gap-4 items-center">
+                <Loading size="sm" />
+                <Loading size="md" text="Loading..." />
+                <Loading size="lg" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* API Test Section - From Build 1 */}
         <Card className="border-dashed border-orange-200">
           <CardHeader>
             <CardTitle className="text-sm text-orange-600">
@@ -127,7 +233,14 @@ export default function HomePage() {
               size="sm"
               className="w-full"
             >
-              {isTestingApi ? 'Testing API...' : 'Test API Connection'}
+              {isTestingApi ? (
+                <>
+                  <ButtonLoading className="mr-2" />
+                  Testing API...
+                </>
+              ) : (
+                'Test API Connection'
+              )}
             </Button>
 
             {testResult && (
@@ -147,11 +260,6 @@ export default function HomePage() {
                 )}
               </div>
             )}
-
-            <div className="text-xs text-muted-foreground space-y-1">
-              <div>Check browser console for detailed logs</div>
-              <div>Correlation IDs help track requests</div>
-            </div>
           </CardContent>
         </Card>
       </div>
