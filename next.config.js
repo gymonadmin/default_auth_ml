@@ -3,6 +3,33 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['typeorm']
   },
+  webpack: (config, { isServer }) => {
+    // Exclude Winston from client-side bundle
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+        stream: false,
+        url: false,
+        zlib: false,
+        http: false,
+        https: false,
+        assert: false,
+        os: false,
+        path: false,
+      };
+      
+      // Ignore winston and other Node.js specific modules on client side
+      config.externals = config.externals || [];
+      config.externals.push({
+        winston: 'commonjs winston',
+      });
+    }
+    return config;
+  },
   async headers() {
     const isProduction = process.env.NODE_ENV === 'production';
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://docsbox.ro';
