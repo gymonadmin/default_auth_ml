@@ -2,6 +2,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { SessionApi } from '@/lib/api/session';
+import { clientLogger } from '@/lib/config/client-logger';
+
+const logger = clientLogger.withCorrelationId('use-session');
 
 export interface User {
   id: string;
@@ -45,25 +49,25 @@ export function useSession(): UseSessionReturn {
   // Validate current session
   const validateSession = useCallback(async (): Promise<SessionData | null> => {
     try {
-      const response = await fetch('/api/auth/session', {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      logger.debug('Validating session');
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          return result.data;
-        }
+      const response = await SessionApi.validateSession();
+
+      if (response.success && response.data) {
+        logger.debug('Session validation successful', {
+          userId: response.data.user.id,
+          sessionId: response.data.session.id,
+        });
+        
+        return response.data;
       }
 
-      // Session invalid or expired
+      logger.debug('Session validation failed - no valid session');
       return null;
-    } catch (error) {
-      console.error('Session validation error:', error);
+    } catch (error: any) {
+      logger.debug('Session validation error', {
+        error: error?.message || 'Unknown error',
+      });
       return null;
     }
   }, []);
@@ -74,10 +78,23 @@ export function useSession(): UseSessionReturn {
     setError(null);
 
     try {
+      logger.debug('Refreshing session data');
+      
       const sessionData = await validateSession();
       setData(sessionData);
+      
+      if (sessionData) {
+        logger.debug('Session refresh successful', {
+          userId: sessionData.user.id,
+        });
+      } else {
+        logger.debug('Session refresh - no valid session');
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to refresh session';
+      
+      logger.error('Session refresh failed', error as Error);
+      
       setError(errorMessage);
       setData(null);
     } finally {
@@ -90,25 +107,16 @@ export function useSession(): UseSessionReturn {
     try {
       setIsLoading(true);
       
-      await fetch('/api/auth/signout', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      logger.info('Signing out user');
 
-      // Clear session data regardless of API response
+      // Note: Actual API call is handled by useAuth hook
+      // This just clears local session data
       setData(null);
       setError(null);
 
-      // Redirect to signin page
-      window.location.href = '/signin';
+      logger.info('Local session cleared');
     } catch (error) {
-      console.error('Sign out error:', error);
-      // Still clear local session data on error
-      setData(null);
-      window.location.href = '/signin';
+      logger.error('Sign out error', error as Error);
     } finally {
       setIsLoading(false);
     }
@@ -116,6 +124,7 @@ export function useSession(): UseSessionReturn {
 
   // Initialize session on mount
   useEffect(() => {
+    logger.debug('Initializing session on mount');
     refresh();
   }, [refresh]);
 
@@ -123,9 +132,14 @@ export function useSession(): UseSessionReturn {
   useEffect(() => {
     if (!data) return;
 
+    logger.debug('Setting up session auto-refresh');
+
     const interval = setInterval(() => {
+      logger.debug('Auto-refreshing session');
+      
       validateSession().then(sessionData => {
         if (!sessionData) {
+          logger.info('Session expired during auto-refresh');
           // Session expired, clear data and redirect
           setData(null);
           window.location.href = '/signin';
@@ -135,7 +149,10 @@ export function useSession(): UseSessionReturn {
       });
     }, 5 * 60 * 1000); // 5 minutes
 
-    return () => clearInterval(interval);
+    return () => {
+      logger.debug('Clearing session auto-refresh interval');
+      clearInterval(interval);
+    };
   }, [data, validateSession]);
 
   // Check if session is expiring soon (within 30 minutes)
@@ -147,8 +164,11 @@ export function useSession(): UseSessionReturn {
   useEffect(() => {
     if (!data || !isExpiringSoon) return;
 
+    logger.debug('Session expiring soon, setting up activity detection');
+
     // Simple activity detection
     const handleActivity = () => {
+      logger.debug('User activity detected, refreshing session');
       refresh();
     };
 

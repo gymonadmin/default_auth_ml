@@ -3,19 +3,14 @@
 
 import { useState, useCallback } from 'react';
 import { useSession } from './use-session';
+import { AuthApi } from '@/lib/api/auth';
+import { clientLogger } from '@/lib/config/client-logger';
+import type {
+  SendMagicLinkRequest,
+  VerifyMagicLinkRequest,
+} from '@/lib/api/types';
 
-export interface SendMagicLinkRequest {
-  email: string;
-  redirectUrl?: string;
-}
-
-export interface VerifyMagicLinkRequest {
-  token: string;
-  profile?: {
-    firstName: string;
-    lastName: string;
-  };
-}
+const logger = clientLogger.withCorrelationId('use-auth');
 
 export interface AuthResponse {
   success: boolean;
@@ -31,47 +26,6 @@ export interface UseAuthReturn {
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<AuthResponse>;
   clearError: () => void;
-}
-
-/**
- * Get CSRF token from cookies
- */
-function getCSRFToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  
-  const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-    const [name, value] = cookie.trim().split('=');
-    if (name && value) {
-      acc[name] = decodeURIComponent(value);
-    }
-    return acc;
-  }, {} as Record<string, string>);
-  
-  return cookies['csrf-token'] || null;
-}
-
-/**
- * Make authenticated request with CSRF token
- */
-async function makeAuthenticatedRequest(
-  url: string,
-  options: RequestInit = {}
-): Promise<Response> {
-  const csrfToken = getCSRFToken();
-  
-  const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
-  
-  // Add CSRF token for state-changing requests
-  if (csrfToken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(options.method?.toUpperCase() || 'GET')) {
-    headers.set('X-CSRF-Token', csrfToken);
-  }
-  
-  return fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
 }
 
 export function useAuth(): UseAuthReturn {
@@ -90,20 +44,15 @@ export function useAuth(): UseAuthReturn {
     setError(null);
 
     try {
-      // Magic link sending doesn't require CSRF (it's not state-changing for the user's session)
-      const response = await fetch('/api/auth/send-link', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(request),
+      logger.info('Sending magic link', {
+        email: request.email,
+        hasRedirectUrl: !!request.redirectUrl,
       });
 
-      const result = await response.json();
+      const response = await AuthApi.sendMagicLink(request);
 
-      if (!response.ok) {
-        const errorMessage = result.error?.message || 'Failed to send magic link';
+      if (!response.success) {
+        const errorMessage = response.error?.message || 'Failed to send magic link';
         setError(errorMessage);
         return {
           success: false,
@@ -111,13 +60,23 @@ export function useAuth(): UseAuthReturn {
         };
       }
 
+      logger.info('Magic link sent successfully', {
+        email: request.email,
+        isNewUser: response.data?.isNewUser,
+      });
+
       return {
         success: true,
-        message: result.message,
-        data: result.data,
+        message: response.message || 'Magic link sent successfully',
+        data: response.data,
       };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Network error occurred';
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Network error occurred';
+      
+      logger.error('Magic link send failed', error as Error, {
+        email: request.email,
+      });
+      
       setError(errorMessage);
       return {
         success: false,
@@ -134,60 +93,40 @@ export function useAuth(): UseAuthReturn {
     setError(null);
 
     try {
-      // First, get CSRF token if we don't have one
-      let csrfToken = getCSRFToken();
-      
-      if (!csrfToken) {
-        // Make a GET request to an auth endpoint to get CSRF token
-        try {
-          const csrfResponse = await fetch('/api/auth/session', {
-            method: 'GET',
-            credentials: 'include',
-          });
-          
-          // Use csrfResponse to avoid unused variable warning
-          if (csrfResponse.ok) {
-            // CSRF token should now be in cookies
-            csrfToken = getCSRFToken();
-          }
-        } catch (csrfError) {
-          console.warn('Failed to get CSRF token:', csrfError);
-        }
-      }
-
-      const response = await makeAuthenticatedRequest('/api/auth/verify', {
-        method: 'POST',
-        body: JSON.stringify(request),
+      logger.info('Verifying magic link', {
+        hasToken: !!request.token,
+        hasProfile: !!request.profile,
       });
 
-      const result = await response.json();
+      const response = await AuthApi.verifyMagicLink(request);
 
-      if (!response.ok) {
-        const errorMessage = result.error?.message || 'Failed to verify magic link';
-        
-        // If CSRF token was invalid, try to get a new one
-        if (result.error?.code === 'CSRF_TOKEN_INVALID') {
-          setError('Security token expired. Please try again.');
-        } else {
-          setError(errorMessage);
-        }
-        
+      if (!response.success) {
+        const errorMessage = response.error?.message || 'Failed to verify magic link';
+        setError(errorMessage);
         return {
           success: false,
           message: errorMessage,
         };
       }
 
+      logger.info('Magic link verified successfully', {
+        userId: response.data?.user?.id,
+        isNewUser: response.data?.isNewUser,
+      });
+
       // Refresh session data after successful verification
       await refresh();
 
       return {
         success: true,
-        message: result.message,
-        data: result.data,
+        message: response.message || 'Signed in successfully',
+        data: response.data,
       };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Network error occurred';
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Network error occurred';
+      
+      logger.error('Magic link verification failed', error as Error);
+      
       setError(errorMessage);
       return {
         success: false,
@@ -204,49 +143,33 @@ export function useAuth(): UseAuthReturn {
     setError(null);
 
     try {
-      // Get CSRF token for delete account
-      const csrfToken = getCSRFToken();
-      
-      if (!csrfToken) {
-        setError('Security token not available. Please refresh and try again.');
-        return {
-          success: false,
-          message: 'Security token not available. Please refresh and try again.',
-        };
-      }
+      logger.info('Deleting account');
 
-      const response = await makeAuthenticatedRequest('/api/auth/delete-account', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
+      const response = await AuthApi.deleteAccount();
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        const errorMessage = result.error?.message || 'Failed to delete account';
-        
-        // If CSRF token was invalid, try to get a new one
-        if (result.error?.code === 'CSRF_TOKEN_INVALID') {
-          setError('Security token expired. Please refresh and try again.');
-        } else {
-          setError(errorMessage);
-        }
-        
+      if (!response.success) {
+        const errorMessage = response.error?.message || 'Failed to delete account';
+        setError(errorMessage);
         return {
           success: false,
           message: errorMessage,
         };
       }
 
-      // Account deleted successfully - redirect to home/signin
+      logger.info('Account deleted successfully');
+
+      // Redirect to signin after successful deletion
       window.location.href = '/signin';
 
       return {
         success: true,
-        message: result.message,
+        message: response.message || 'Account deleted successfully',
       };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Network error occurred';
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Network error occurred';
+      
+      logger.error('Account deletion failed', error as Error);
+      
       setError(errorMessage);
       return {
         success: false,
@@ -263,27 +186,18 @@ export function useAuth(): UseAuthReturn {
     setError(null);
 
     try {
-      // Get CSRF token for signout
-      const csrfToken = getCSRFToken();
-      
-      if (!csrfToken) {
-        // If no CSRF token, still try to sign out via session hook
-        await sessionSignOut();
-        return;
-      }
+      logger.info('Signing out');
 
-      await makeAuthenticatedRequest('/api/auth/signout', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
+      await AuthApi.signOut();
 
-      // Clear session data regardless of API response
+      logger.info('Sign out successful');
+
+      // Clear session data and redirect
       setError(null);
-
-      // Redirect to signin page
       window.location.href = '/signin';
     } catch (error) {
-      console.error('Sign out error:', error);
+      logger.error('Sign out error', error as Error);
+      
       const errorMessage = error instanceof Error ? error.message : 'Failed to sign out';
       setError(errorMessage);
       
@@ -291,7 +205,7 @@ export function useAuth(): UseAuthReturn {
       try {
         await sessionSignOut();
       } catch (sessionError) {
-        console.error('Session signout error:', sessionError);
+        logger.error('Session signout error', sessionError as Error);
         // Force redirect even if session cleanup fails
         window.location.href = '/signin';
       }

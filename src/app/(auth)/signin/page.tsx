@@ -1,4 +1,7 @@
 // src/app/(auth)/signin/page.tsx
+import { Suspense } from 'react';
+import { SignInForm } from '@/components/auth/signin-form';
+import { Loading } from '@/components/ui/loading';
 import type { Viewport } from 'next';
 
 export const viewport: Viewport = {
@@ -6,11 +9,18 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+function SignInPageContent() {
+  return <SignInForm />;
+}
+
 export default function SignInPage() {
   return (
-    <div>
-      <h1>Sign In</h1>
-      <p>Sign in page - to be implemented</p>
-    </div>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loading size="lg" text="Loading..." />
+      </div>
+    }>
+      <SignInPageContent />
+    </Suspense>
   );
 }

@@ -218,10 +218,10 @@ export class ApiClient {
     return this.request<T>('DELETE', url);
   }
 
-  // Health check method for testing
+  // Health check method for testing (deprecated - use SessionApi.healthCheck)
   async healthCheck(): Promise<boolean> {
     try {
-      logger.debug('Performing API health check', {
+      logger.debug('Performing API health check (deprecated method)', {
         correlationId: this.correlationId,
       });
 
@@ -235,7 +235,15 @@ export class ApiClient {
 
       // Consider it healthy if we get any response (even errors are expected for unauthenticated requests)
       return true;
-    } catch (error) {
+    } catch (error: any) {
+      // 401 (unauthorized) is actually healthy - it means API is working
+      if (error?.code === 'UNAUTHORIZED' || error?.message?.includes('401')) {
+        logger.debug('API health check - 401 response (healthy)', {
+          correlationId: this.correlationId,
+        });
+        return true;
+      }
+
       logger.warn('API health check failed', {
         success: false,
         correlationId: this.correlationId,
