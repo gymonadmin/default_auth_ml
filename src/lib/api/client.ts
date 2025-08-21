@@ -109,16 +109,30 @@ export class ApiClient {
       },
       (error: AxiosError) => {
         const correlationId = error.response?.headers['x-correlation-id'] || 'unknown';
+        const isAuthEndpoint = error.config?.url?.includes('/api/auth/');
+        const isSessionEndpoint = error.config?.url?.includes('/api/auth/session');
         
-        logger.error('API Request failed', {
-          method: error.config?.method?.toUpperCase(),
-          url: error.config?.url,
-          status: error.response?.status,
-          correlationId,
-          errorCode: error.code,
-          message: error.message,
-          responseData: error.response?.data,
-        });
+        // Don't log 401 errors on auth endpoints as errors - they're expected for unauthenticated users
+        if (error.response?.status === 401 && isAuthEndpoint) {
+          logger.debug('Authentication endpoint returned 401 (expected for unauthenticated users)', {
+            method: error.config?.method?.toUpperCase(),
+            url: error.config?.url,
+            status: error.response.status,
+            correlationId,
+            isSessionEndpoint,
+          });
+        } else {
+          // Log other errors normally - include status in error logging
+          logger.error('API Request failed', {
+            method: error.config?.method?.toUpperCase(),
+            url: error.config?.url,
+            status: error.response?.status,
+            correlationId,
+            errorCode: error.code,
+            message: error.message,
+            responseData: error.response?.data,
+          });
+        }
 
         return Promise.reject(this.handleApiError(error));
       }
@@ -218,32 +232,30 @@ export class ApiClient {
     return this.request<T>('DELETE', url);
   }
 
-  // Health check method for testing (deprecated - use SessionApi.healthCheck)
+  // Health check method for testing (now uses better approach)
   async healthCheck(): Promise<boolean> {
     try {
-      logger.debug('Performing API health check (deprecated method)', {
+      logger.debug('Performing API health check', {
         correlationId: this.correlationId,
       });
 
-      const response = await this.get('/api/auth/session');
+      // Use a simple HEAD request to check if server is responding
+      const response = await fetch('/api/health', {
+        method: 'HEAD',
+        credentials: 'same-origin',
+      });
+      
+      // If health endpoint doesn't exist, that's still healthy
+      const isHealthy = response.status < 500;
       
       logger.info('API health check completed', {
-        success: response.success !== false,
-        responseReceived: !!response,
+        isHealthy,
+        status: response.status,
         correlationId: this.correlationId,
       });
 
-      // Consider it healthy if we get any response (even errors are expected for unauthenticated requests)
-      return true;
+      return isHealthy;
     } catch (error: any) {
-      // 401 (unauthorized) is actually healthy - it means API is working
-      if (error?.code === 'UNAUTHORIZED' || error?.message?.includes('401')) {
-        logger.debug('API health check - 401 response (healthy)', {
-          correlationId: this.correlationId,
-        });
-        return true;
-      }
-
       logger.warn('API health check failed', {
         success: false,
         correlationId: this.correlationId,

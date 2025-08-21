@@ -25,8 +25,9 @@ export async function GET(request: NextRequest) {
     const sessionToken = getSessionTokenFromCookies(request.cookies);
     
     if (!sessionToken) {
-      logger.debug('No session token found in cookies');
+      logger.debug('No session token found in cookies - user not authenticated');
       
+      // This is normal for unauthenticated users - don't log as error
       throw new AuthError(
         ErrorCode.UNAUTHORIZED,
         'No session found',
@@ -36,6 +37,10 @@ export async function GET(request: NextRequest) {
         'Please sign in to continue'
       );
     }
+
+    logger.debug('Session token found, validating', {
+      tokenLength: sessionToken.length,
+    });
 
     // Ensure database connection is available
     await initializeDatabase();
@@ -47,8 +52,13 @@ export async function GET(request: NextRequest) {
     const sessionData = await sessionService.validateSession(sessionToken);
     
     if (!sessionData || !sessionData.isValid) {
-      logger.debug('Invalid or expired session token');
+      logger.info('Session token is invalid or expired', {
+        hasSessionData: !!sessionData,
+        isValid: sessionData?.isValid,
+        isExpired: sessionData?.session?.isExpired,
+      });
       
+      // Session exists but is invalid - this warrants info level logging
       throw new AuthError(
         ErrorCode.SESSION_EXPIRED,
         'Session expired or invalid',
@@ -133,14 +143,26 @@ export async function GET(request: NextRequest) {
     return response;
 
   } catch (error) {
-    logger.error('Session validation failed', {
-      correlationId,
-      error: error instanceof Error ? {
-        message: error.message,
-        name: error.name,
-        stack: error.stack,
-      } : { message: String(error) },
-    });
+    // Only log actual errors, not expected authentication failures
+    if (error instanceof AuthError && error.code === ErrorCode.UNAUTHORIZED) {
+      logger.debug('Unauthenticated request - no session cookie found', {
+        correlationId,
+      });
+    } else if (error instanceof AuthError && error.code === ErrorCode.SESSION_EXPIRED) {
+      logger.info('Session validation failed - expired or invalid session', {
+        correlationId,
+        error: error.message,
+      });
+    } else {
+      logger.error('Unexpected session validation error', {
+        correlationId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+    }
 
     // Clear session cookie on validation failure (handle signed cookies properly)
     const errorResponse = handleApiError(error, correlationId);

@@ -41,6 +41,20 @@ export interface UseSessionReturn {
   signOut: () => Promise<void>;
 }
 
+/**
+ * Check if session cookie exists in browser
+ */
+function hasSessionCookie(): boolean {
+  if (typeof document === 'undefined') return false;
+  
+  const cookies = document.cookie.split(';');
+  const sessionCookie = cookies.find(cookie => 
+    cookie.trim().startsWith('auth-session=')
+  );
+  
+  return !!sessionCookie && sessionCookie.includes('=') && sessionCookie.split('=')[1].trim() !== '';
+}
+
 export function useSession(): UseSessionReturn {
   const [data, setData] = useState<SessionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,6 +93,14 @@ export function useSession(): UseSessionReturn {
 
     try {
       logger.debug('Refreshing session data');
+      
+      // Check if session cookie exists before making API call
+      if (!hasSessionCookie()) {
+        logger.debug('No session cookie found, skipping API validation');
+        setData(null);
+        setIsLoading(false);
+        return;
+      }
       
       const sessionData = await validateSession();
       setData(sessionData);
@@ -128,7 +150,7 @@ export function useSession(): UseSessionReturn {
     refresh();
   }, [refresh]);
 
-  // Auto-refresh session periodically (every 5 minutes)
+  // Auto-refresh session periodically (every 5 minutes) - only if we have a session
   useEffect(() => {
     if (!data) return;
 
@@ -136,6 +158,13 @@ export function useSession(): UseSessionReturn {
 
     const interval = setInterval(() => {
       logger.debug('Auto-refreshing session');
+      
+      // Check if cookie still exists before making API call
+      if (!hasSessionCookie()) {
+        logger.info('Session cookie removed, clearing session data');
+        setData(null);
+        return;
+      }
       
       validateSession().then(sessionData => {
         if (!sessionData) {

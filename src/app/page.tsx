@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ButtonLoading } from '@/components/ui/loading';
-import { SessionApi } from '@/lib/api/session';
 import { clientLogger } from '@/lib/config/client-logger';
 
 const logger = clientLogger.withCorrelationId('homepage');
@@ -15,25 +14,15 @@ const logger = clientLogger.withCorrelationId('homepage');
 export default function HomePage() {
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
-  const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
 
   const handleContinueWithEmail = async () => {
     setIsNavigating(true);
     
     logger.info('User clicked Continue with Email');
 
-    // Quick health check before navigation
-    const healthy = await SessionApi.healthCheck();
-    setIsHealthy(healthy);
-
-    if (!healthy) {
-      toast.error('Service temporarily unavailable');
-      setIsNavigating(false);
-      return;
-    }
-
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Simple delay for UX, no need for health check that generates errors
+      await new Promise(resolve => setTimeout(resolve, 300));
       router.push('/signin');
       logger.info('Navigation to signin completed');
     } catch (error) {
@@ -53,9 +42,6 @@ export default function HomePage() {
           <p className="text-muted-foreground">
             Secure authentication with magic links
           </p>
-          {isHealthy === false && (
-            <p className="text-sm text-red-600">Service temporarily unavailable</p>
-          )}
         </div>
 
         <Card>

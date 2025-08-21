@@ -241,7 +241,7 @@ async validateSession(sessionToken: string): Promise<SessionValidationResult | n
     const sessionWithUser = await this.sessionRepo.findByTokenHash(tokenHash);
 
     if (!sessionWithUser) {
-      this.logger.debug('Session not found');
+      this.logger.debug('Session not found for token hash');
       return null;
     }
 
@@ -259,7 +259,7 @@ async validateSession(sessionToken: string): Promise<SessionValidationResult | n
 
     // Check if session has expired
     if (hasExpired(sessionWithUser.expiresAt)) {
-      this.logger.debug('Session has expired', {
+      this.logger.info('Session has expired', {
         sessionId: sessionWithUser.id,
         expiresAt: sessionWithUser.expiresAt,
       });
@@ -271,7 +271,7 @@ async validateSession(sessionToken: string): Promise<SessionValidationResult | n
 
     // Check if user exists and is active
     if (!sessionWithUser.user || !sessionWithUser.user.isActive) {
-      this.logger.debug('User not found or inactive', {
+      this.logger.info('User not found or inactive for session', {
         sessionId: sessionWithUser.id,
         userId: sessionWithUser.userId,
         hasUser: !!sessionWithUser.user,
