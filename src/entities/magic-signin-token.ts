@@ -5,8 +5,6 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
   Index,
 } from 'typeorm';
 
@@ -106,16 +104,8 @@ export class MagicSigninToken {
   })
   updatedAt!: Date;
 
-  // Relationships - using string name to avoid circular imports
-  @ManyToOne('User', 'magicSigninTokens', {
-    onDelete: 'CASCADE',
-    nullable: true
-  })
-  @JoinColumn({ 
-    name: 'userId',
-    foreignKeyConstraintName: 'fk_magic_signin_tokens_user'
-  })
-  user?: any;
+  // NO RELATIONSHIPS DEFINED HERE
+  // We'll handle relationships through queries instead
 
   // Computed properties
   get isExpired(): boolean {

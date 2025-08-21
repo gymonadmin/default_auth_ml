@@ -5,10 +5,9 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
-  OneToOne,
   Index,
 } from 'typeorm';
+import type { Profile } from './profile';
 
 @Entity('users')
 @Index('idx_users_email', ['email'])
@@ -58,29 +57,10 @@ export class User {
   })
   updatedAt!: Date;
 
-  // Relationships - using string names to avoid circular imports
-  @OneToOne('Profile', 'user', {
-    cascade: ['remove'],
-    onDelete: 'CASCADE'
-  })
-  profile?: any;
-
-  @OneToMany('Session', 'user', {
-    cascade: ['remove'],
-    onDelete: 'CASCADE'
-  })
+  // Virtual properties for manually joined data (not persisted to DB)
+  profile?: Profile;
   sessions?: any[];
-
-  @OneToMany('MagicSigninToken', 'user', {
-    cascade: ['remove'],
-    onDelete: 'CASCADE'
-  })
   magicSigninTokens?: any[];
-
-  @OneToMany('AuditLog', 'user', {
-    cascade: ['remove'],
-    onDelete: 'CASCADE'
-  })
   auditLogs?: any[];
 
   // Computed properties

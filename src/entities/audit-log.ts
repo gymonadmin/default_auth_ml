@@ -4,8 +4,6 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
   Index,
 } from 'typeorm';
 
@@ -112,16 +110,8 @@ export class AuditLog {
   })
   createdAt!: Date;
 
-  // Relationships - using string name to avoid circular imports
-  @ManyToOne('User', 'auditLogs', {
-    onDelete: 'CASCADE',
-    nullable: true
-  })
-  @JoinColumn({ 
-    name: 'userId',
-    foreignKeyConstraintName: 'fk_audit_logs_user'
-  })
-  user?: any;
+  // NO RELATIONSHIPS DEFINED HERE
+  // We'll handle relationships through queries instead
 
   // Static factory methods
   static createSuccess(

@@ -26,7 +26,7 @@ export interface CreateSessionRequest {
 }
 
 export interface SessionValidationResult {
-  session: Session;
+  session: any;
   user: User;
   isValid: boolean;
   shouldExtend: boolean;
@@ -212,96 +212,97 @@ export class SessionService {
     }
   }
 
-  /**
-   * Validate a session token and return session data
-   */
-  async validateSession(sessionToken: string): Promise<SessionValidationResult | null> {
-    try {
-      this.logger.debug('Validating session token', {
-        tokenLength: sessionToken.length,
+/**
+ * Validate a session token and return session data
+ */
+async validateSession(sessionToken: string): Promise<SessionValidationResult | null> {
+  try {
+    this.logger.debug('Validating session token', {
+      tokenLength: sessionToken.length,
+    });
+
+    // Validate token format
+    if (!sessionToken || typeof sessionToken !== 'string' || sessionToken.length !== 64) {
+      this.logger.debug('Invalid session token format', {
+        tokenLength: sessionToken?.length,
+        tokenType: typeof sessionToken,
       });
-
-      // Validate token format
-      if (!sessionToken || typeof sessionToken !== 'string' || sessionToken.length !== 64) {
-        this.logger.debug('Invalid session token format', {
-          tokenLength: sessionToken?.length,
-          tokenType: typeof sessionToken,
-        });
-        return null;
-      }
-
-      // Validate token contains only hex characters
-      if (!/^[0-9a-f]{64}$/i.test(sessionToken)) {
-        this.logger.debug('Session token contains invalid characters');
-        return null;
-      }
-
-      // Hash the token to find the session
-      const tokenHash = await hashToken(sessionToken);
-      const session = await this.sessionRepo.findByTokenHash(tokenHash);
-
-      if (!session) {
-        this.logger.debug('Session not found');
-        return null;
-      }
-
-      // Verify token hash using timing-safe comparison
-      if (!verifyTokenHash(sessionToken, session.tokenHash)) {
-        this.logger.debug('Session token verification failed');
-        return null;
-      }
-
-      // Check if session is active
-      if (!session.isActive) {
-        this.logger.debug('Session is not active', { sessionId: session.id });
-        return null;
-      }
-
-      // Check if session has expired
-      if (hasExpired(session.expiresAt)) {
-        this.logger.debug('Session has expired', {
-          sessionId: session.id,
-          expiresAt: session.expiresAt,
-        });
-        
-        // Mark session as expired and log audit event
-        await this.expireSession(session.id, 'Session expired naturally');
-        return null;
-      }
-
-      // Get user data
-      const user = session.user;
-      if (!user || !user.isActive) {
-        this.logger.debug('User not found or inactive', {
-          sessionId: session.id,
-          userId: session.userId,
-        });
-        return null;
-      }
-
-      // Update last accessed time
-      await this.sessionRepo.updateLastAccessed(session.id);
-
-      // Determine if session should be extended
-      const shouldExtend = this.shouldExtendSession(session);
-
-      this.logger.debug('Session validated successfully', {
-        sessionId: session.id,
-        userId: session.userId,
-        shouldExtend,
-      });
-
-      return {
-        session,
-        user,
-        isValid: true,
-        shouldExtend,
-      };
-    } catch (error) {
-      this.logger.error('Session validation error', error instanceof Error ? error : new Error(String(error)));
       return null;
     }
+
+    // Validate token contains only hex characters
+    if (!/^[0-9a-f]{64}$/i.test(sessionToken)) {
+      this.logger.debug('Session token contains invalid characters');
+      return null;
+    }
+
+    // Hash the token to find the session
+    const tokenHash = await hashToken(sessionToken);
+    const sessionWithUser = await this.sessionRepo.findByTokenHash(tokenHash);
+
+    if (!sessionWithUser) {
+      this.logger.debug('Session not found');
+      return null;
+    }
+
+    // Verify token hash using timing-safe comparison
+    if (!verifyTokenHash(sessionToken, sessionWithUser.tokenHash)) {
+      this.logger.debug('Session token verification failed');
+      return null;
+    }
+
+    // Check if session is active
+    if (!sessionWithUser.isActive) {
+      this.logger.debug('Session is not active', { sessionId: sessionWithUser.id });
+      return null;
+    }
+
+    // Check if session has expired
+    if (hasExpired(sessionWithUser.expiresAt)) {
+      this.logger.debug('Session has expired', {
+        sessionId: sessionWithUser.id,
+        expiresAt: sessionWithUser.expiresAt,
+      });
+      
+      // Mark session as expired and log audit event
+      await this.expireSession(sessionWithUser.id, 'Session expired naturally');
+      return null;
+    }
+
+    // Check if user exists and is active
+    if (!sessionWithUser.user || !sessionWithUser.user.isActive) {
+      this.logger.debug('User not found or inactive', {
+        sessionId: sessionWithUser.id,
+        userId: sessionWithUser.userId,
+        hasUser: !!sessionWithUser.user,
+        userIsActive: sessionWithUser.user?.isActive,
+      });
+      return null;
+    }
+
+    // Update last accessed time
+    await this.sessionRepo.updateLastAccessed(sessionWithUser.id);
+
+    // Determine if session should be extended
+    const shouldExtend = this.shouldExtendSession(sessionWithUser);
+
+    this.logger.debug('Session validated successfully', {
+      sessionId: sessionWithUser.id,
+      userId: sessionWithUser.userId,
+      shouldExtend,
+    });
+
+    return {
+      session: sessionWithUser,
+      user: sessionWithUser.user,
+      isValid: true,
+      shouldExtend,
+    };
+  } catch (error) {
+    this.logger.error('Session validation error', error instanceof Error ? error : new Error(String(error)));
+    return null;
   }
+}
 
   /**
    * Extend session expiration

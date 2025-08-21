@@ -1,20 +1,51 @@
 // src/repositories/user-repository.ts
 import { Repository, DataSource, IsNull } from 'typeorm';
 import { User } from '@/entities/user';
+import { Profile } from '@/entities/profile';
 import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
 export class UserRepository {
   private repository: Repository<User>;
+  private profileRepository: Repository<Profile>;
   private logger: Logger;
 
   constructor(dataSource: DataSource, correlationId?: string) {
     this.repository = dataSource.getRepository(User);
+    this.profileRepository = dataSource.getRepository(Profile);
     this.logger = new Logger(correlationId);
   }
 
   /**
-   * Find user by email (excluding deleted users)
+   * Manually join profile data to user
+   */
+  private async joinProfileData(user: User): Promise<User> {
+    try {
+      // Get profile data
+      const profile = await this.profileRepository.findOne({
+        where: { 
+          userId: user.id,
+          deletedAt: IsNull()
+        }
+      });
+
+      // Manually attach the profile data
+      if (profile) {
+        user.profile = profile;
+      }
+
+      return user;
+    } catch (error) {
+      this.logger.error('Error joining profile data to user', {
+        userId: user.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return user;
+    }
+  }
+
+  /**
+   * Find user by email (excluding deleted users) with profile
    */
   async findByEmail(email: string): Promise<User | null> {
     try {
@@ -23,18 +54,23 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           email: email.toLowerCase(),
-          deletedAt: IsNull(), // Fixed: Ensure deleted users are excluded
-        },
-        relations: ['profile'],
+          deletedAt: IsNull(),
+        }
       });
+
+      if (!user) {
+        this.logger.debug('User not found by email', { email: email.toLowerCase() });
+        return null;
+      }
 
       this.logger.debug('User found by email', { 
-        found: !!user, 
-        userId: user?.id,
-        isVerified: user?.isVerified 
+        found: true, 
+        userId: user.id,
+        isVerified: user.isVerified 
       });
 
-      return user;
+      // Manually join profile data
+      return await this.joinProfileData(user);
     } catch (error) {
       this.logger.error('Error finding user by email', {
         email,
@@ -59,7 +95,7 @@ export class UserRepository {
   }
 
   /**
-   * Find user by ID (excluding deleted users)
+   * Find user by ID (excluding deleted users) with profile
    */
   async findById(id: string): Promise<User | null> {
     try {
@@ -68,18 +104,23 @@ export class UserRepository {
       const user = await this.repository.findOne({
         where: {
           id,
-          deletedAt: IsNull(), // Fixed: Ensure deleted users are excluded
-        },
-        relations: ['profile'],
+          deletedAt: IsNull(),
+        }
       });
+
+      if (!user) {
+        this.logger.debug('User not found by ID', { userId: id });
+        return null;
+      }
 
       this.logger.debug('User found by ID', { 
-        found: !!user, 
+        found: true, 
         userId: id,
-        isVerified: user?.isVerified 
+        isVerified: user.isVerified 
       });
 
-      return user;
+      // Manually join profile data
+      return await this.joinProfileData(user);
     } catch (error) {
       this.logger.error('Error finding user by ID', {
         userId: id,
@@ -158,7 +199,10 @@ export class UserRepository {
     try {
       this.logger.debug('Updating user', { userId: id, updates });
       
-      const user = await this.findById(id);
+      const user = await this.repository.findOne({
+        where: { id, deletedAt: IsNull() }
+      });
+      
       if (!user) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -176,7 +220,8 @@ export class UserRepository {
         updatedFields: Object.keys(updates)
       });
 
-      return savedUser;
+      // Return user with profile data
+      return await this.joinProfileData(savedUser);
     } catch (error) {
       // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
@@ -212,7 +257,10 @@ export class UserRepository {
     try {
       this.logger.debug('Marking user as verified', { userId: id });
       
-      const user = await this.findById(id);
+      const user = await this.repository.findOne({
+        where: { id, deletedAt: IsNull() }
+      });
+      
       if (!user) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -226,7 +274,9 @@ export class UserRepository {
       const savedUser = await this.repository.save(user);
       
       this.logger.info('User marked as verified', { userId: savedUser.id });
-      return savedUser;
+      
+      // Return user with profile data
+      return await this.joinProfileData(savedUser);
     } catch (error) {
       // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
@@ -262,7 +312,10 @@ export class UserRepository {
     try {
       this.logger.debug('Soft deleting user', { userId: id });
       
-      const user = await this.findById(id);
+      const user = await this.repository.findOne({
+        where: { id, deletedAt: IsNull() }
+      });
+      
       if (!user) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -314,7 +367,7 @@ export class UserRepository {
       const count = await this.repository.count({
         where: {
           email: email.toLowerCase(),
-          deletedAt: IsNull(), // Fixed: Exclude deleted users from existence check
+          deletedAt: IsNull(),
         },
       });
 
@@ -360,19 +413,23 @@ export class UserRepository {
           isVerified,
           deletedAt: IsNull(),
         },
-        relations: ['profile'],
         take: limit,
         order: {
           createdAt: 'DESC',
         },
       });
 
+      // Manually join profile data for each user
+      const usersWithProfiles = await Promise.all(
+        users.map(user => this.joinProfileData(user))
+      );
+
       this.logger.debug('Users found by verification status', { 
         isVerified, 
-        count: users.length 
+        count: usersWithProfiles.length 
       });
 
-      return users;
+      return usersWithProfiles;
     } catch (error) {
       this.logger.error('Error finding users by verification status', {
         isVerified,

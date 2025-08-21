@@ -5,8 +5,6 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToOne,
-  JoinColumn,
   Index,
 } from 'typeorm';
 
@@ -55,15 +53,8 @@ export class Profile {
   })
   updatedAt!: Date;
 
-  // Relationships - using string name to avoid circular imports
-  @OneToOne('User', 'profile', {
-    onDelete: 'CASCADE'
-  })
-  @JoinColumn({ 
-    name: 'userId',
-    foreignKeyConstraintName: 'fk_profiles_user'
-  })
-  user!: any;
+  // NO RELATIONSHIPS DEFINED HERE
+  // We'll handle relationships through queries instead
 
   // Computed properties
   get fullName(): string {

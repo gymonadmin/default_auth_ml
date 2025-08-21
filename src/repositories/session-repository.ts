@@ -1,6 +1,8 @@
-// src/repositories/session-repository.ts
+// src/repositories/session-repository.ts 
 import { Repository, DataSource, LessThan, MoreThan } from 'typeorm';
 import { Session } from '@/entities/session';
+import { User } from '@/entities/user';
+import { Profile } from '@/entities/profile';
 import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
 
@@ -14,12 +16,21 @@ export interface CreateSessionData {
   city?: string;
 }
 
+// Extended session type with manually joined data
+export interface SessionWithUser extends Session {
+  user: User;
+}
+
 export class SessionRepository {
   private repository: Repository<Session>;
+  private userRepository: Repository<User>;
+  private profileRepository: Repository<Profile>;
   private logger: Logger;
 
   constructor(dataSource: DataSource, correlationId?: string) {
     this.repository = dataSource.getRepository(Session);
+    this.userRepository = dataSource.getRepository(User);
+    this.profileRepository = dataSource.getRepository(Profile);
     this.logger = new Logger(correlationId);
   }
 
@@ -32,26 +43,80 @@ export class SessionRepository {
   }
 
   /**
-   * Find session by token hash
+   * Manually join user and profile data to session
    */
-  async findByTokenHash(tokenHash: string): Promise<Session | null> {
+  private async joinUserData(session: Session): Promise<SessionWithUser | null> {
+    try {
+      // Get user data
+      const user = await this.userRepository.findOne({
+        where: { 
+          id: session.userId,
+          deletedAt: null as any
+        }
+      });
+
+      if (!user) {
+        this.logger.debug('User not found for session', {
+          sessionId: session.id,
+          userId: session.userId
+        });
+        return null;
+      }
+
+      // Get profile data
+      const profile = await this.profileRepository.findOne({
+        where: { 
+          userId: session.userId,
+          deletedAt: null as any
+        }
+      });
+
+      // Manually attach the profile data to user
+      if (profile) {
+        user.profile = profile;
+      }
+
+      // Create the session with user data
+      const sessionWithUser = session as SessionWithUser;
+      sessionWithUser.user = user;
+
+      return sessionWithUser;
+    } catch (error) {
+      this.logger.error('Error joining user data to session', {
+        sessionId: session.id,
+        userId: session.userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Find session by token hash with user data
+   */
+  async findByTokenHash(tokenHash: string): Promise<SessionWithUser | null> {
     try {
       this.logger.debug('Finding session by token hash', { tokenHashPrefix: tokenHash.substring(0, 8) });
       
       const session = await this.repository.findOne({
-        where: { tokenHash },
-        relations: ['user', 'user.profile'],
+        where: { tokenHash }
       });
+
+      if (!session) {
+        this.logger.debug('Session not found by token hash');
+        return null;
+      }
 
       this.logger.debug('Session found by token hash', { 
-        found: !!session, 
-        sessionId: session?.id,
-        userId: session?.userId,
-        isActive: session?.isActive,
-        isExpired: session?.isExpired
+        found: true, 
+        sessionId: session.id,
+        userId: session.userId,
+        isActive: session.isActive,
+        isExpired: session.isExpired
       });
 
-      return session;
+      // Manually join user and profile data
+      return await this.joinUserData(session);
     } catch (error) {
       this.logger.error('Error finding session by token hash', {
         tokenHashPrefix: tokenHash.substring(0, 8),
@@ -76,25 +141,30 @@ export class SessionRepository {
   }
 
   /**
-   * Find session by ID
+   * Find session by ID with user data
    */
-  async findById(id: string): Promise<Session | null> {
+  async findById(id: string): Promise<SessionWithUser | null> {
     try {
       this.logger.debug('Finding session by ID', { sessionId: id });
       
       const session = await this.repository.findOne({
-        where: { id },
-        relations: ['user', 'user.profile'],
+        where: { id }
       });
+
+      if (!session) {
+        this.logger.debug('Session not found by ID', { sessionId: id });
+        return null;
+      }
 
       this.logger.debug('Session found by ID', { 
-        found: !!session, 
+        found: true, 
         sessionId: id,
-        userId: session?.userId,
-        isActive: session?.isActive
+        userId: session.userId,
+        isActive: session.isActive
       });
 
-      return session;
+      // Manually join user and profile data
+      return await this.joinUserData(session);
     } catch (error) {
       this.logger.error('Error finding session by ID', {
         sessionId: id,
@@ -183,7 +253,7 @@ export class SessionRepository {
     try {
       this.logger.debug('Updating session last accessed time', { sessionId: id });
       
-      const session = await this.findById(id);
+      const session = await this.repository.findOne({ where: { id } });
       if (!session) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -203,7 +273,6 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
-      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
@@ -237,7 +306,7 @@ export class SessionRepository {
     try {
       this.logger.debug('Revoking session', { sessionId: id });
       
-      const session = await this.findById(id);
+      const session = await this.repository.findOne({ where: { id } });
       if (!session) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -252,7 +321,6 @@ export class SessionRepository {
       
       this.logger.info('Session revoked successfully', { sessionId: id });
     } catch (error) {
-      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
@@ -286,7 +354,6 @@ export class SessionRepository {
     try {
       this.logger.debug('Revoking all sessions for user', { userId });
       
-      // Fixed: Validate UUID format first to prevent database errors
       if (!this.isValidUUID(userId)) {
         this.logger.debug('Invalid UUID format for user ID', { userId });
         return 0;
@@ -338,7 +405,7 @@ export class SessionRepository {
         newExpiryDate 
       });
       
-      const session = await this.findById(id);
+      const session = await this.repository.findOne({ where: { id } });
       if (!session) {
         throw new DatabaseError(
           ErrorCode.RECORD_NOT_FOUND,
@@ -358,7 +425,6 @@ export class SessionRepository {
 
       return savedSession;
     } catch (error) {
-      // Re-throw if it's already a DatabaseError
       if (error instanceof DatabaseError) {
         throw error;
       }
@@ -392,7 +458,6 @@ export class SessionRepository {
     try {
       this.logger.debug('Finding active sessions for user', { userId });
       
-      // Fixed: Validate UUID format first to prevent database errors
       if (!this.isValidUUID(userId)) {
         this.logger.debug('Invalid UUID format for user ID, returning empty array', { userId });
         return [];
@@ -480,7 +545,6 @@ export class SessionRepository {
     try {
       this.logger.debug('Counting active sessions for user', { userId });
       
-      // Fixed: Validate UUID format first to prevent database errors
       if (!this.isValidUUID(userId)) {
         this.logger.debug('Invalid UUID format for user ID, returning 0', { userId });
         return 0;

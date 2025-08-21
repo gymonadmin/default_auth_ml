@@ -5,8 +5,6 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
   Index,
 } from 'typeorm';
 
@@ -91,15 +89,8 @@ export class Session {
   })
   updatedAt!: Date;
 
-  // Relationships - using string name to avoid circular imports
-  @ManyToOne('User', 'sessions', {
-    onDelete: 'CASCADE'
-  })
-  @JoinColumn({ 
-    name: 'userId',
-    foreignKeyConstraintName: 'fk_sessions_user'
-  })
-  user!: any;
+  // NO RELATIONSHIPS DEFINED HERE
+  // We'll handle relationships through queries instead
 
   // Computed properties
   get isExpired(): boolean {
