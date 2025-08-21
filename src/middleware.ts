@@ -4,7 +4,6 @@ import type { NextRequest } from 'next/server';
 import { generateCSPNonce, setCSPHeaders } from '@/lib/utils/csp';
 import { generateCorrelationId } from '@/lib/utils/correlation-id';
 import { getClientIP } from '@/lib/utils/ip';
-import { Logger } from '@/lib/config/logger';
 import { 
   createCSRFTokenPair, 
   validateCSRFToken, 
@@ -155,7 +154,7 @@ function addRateLimitHeaders(
 /**
  * Handle CSRF validation for protected routes
  */
-function validateCSRFProtection(request: NextRequest, logger: Logger): boolean {
+function validateCSRFProtection(request: NextRequest, correlationId: string): boolean {
   const pathname = request.nextUrl.pathname;
   const method = request.method;
   
@@ -171,7 +170,8 @@ function validateCSRFProtection(request: NextRequest, logger: Logger): boolean {
   const isValid = validateCSRFToken(headerToken, cookieToken);
   
   if (!isValid) {
-    logger.warn('CSRF validation failed', {
+    console.warn('[WARN] CSRF validation failed', {
+      correlationId,
       pathname,
       method,
       hasHeaderToken: !!headerToken,
@@ -192,9 +192,9 @@ export function middleware(request: NextRequest) {
   // Generate correlation ID and nonce for request tracking and CSP
   const correlationId = generateCorrelationId();
   const nonce = generateCSPNonce();
-  const logger = new Logger(correlationId);
   
-  logger.debug('Middleware processing request', {
+  console.log('[DEBUG] Middleware processing request', {
+    correlationId,
     method: request.method,
     pathname,
     userAgent: request.headers.get('user-agent'),
@@ -203,7 +203,7 @@ export function middleware(request: NextRequest) {
   
   // Handle preflight OPTIONS requests early
   if (request.method === 'OPTIONS') {
-    logger.debug('Handling OPTIONS preflight request');
+    console.log('[DEBUG] Handling OPTIONS preflight request', { correlationId });
     const response = new NextResponse(null, { status: 200 });
     addCorsHeaders(response, request);
     addSecurityHeaders(response, correlationId, nonce);
@@ -221,7 +221,8 @@ export function middleware(request: NextRequest) {
   let response: NextResponse;
   
   if (!rateLimit.allowed) {
-    logger.warn('Rate limit exceeded', {
+    console.warn('[WARN] Rate limit exceeded', {
+      correlationId,
       clientIP,
       pathname,
       count: RATE_LIMIT_COUNT,
@@ -243,10 +244,11 @@ export function middleware(request: NextRequest) {
     );
   } else {
     // Validate CSRF for protected routes
-    const csrfValid = validateCSRFProtection(request, logger);
+    const csrfValid = validateCSRFProtection(request, correlationId);
     
     if (!csrfValid) {
-      logger.warn('CSRF validation failed', {
+      console.warn('[WARN] CSRF validation failed', {
+        correlationId,
         clientIP,
         pathname,
         method: request.method,
@@ -286,7 +288,8 @@ export function middleware(request: NextRequest) {
         response.headers.set('Set-Cookie', cookie);
         response.headers.set('X-CSRF-Token', token);
         
-        logger.debug('Generated CSRF token for new session', {
+        console.log('[DEBUG] Generated CSRF token for new session', {
+          correlationId,
           pathname,
           tokenLength: token.length,
         });
@@ -303,7 +306,8 @@ export function middleware(request: NextRequest) {
   response.headers.set('X-Correlation-ID', correlationId);
   response.headers.set('X-Response-Time', `${Date.now() - startTime}ms`);
   
-  logger.debug('Middleware completed', {
+  console.log('[DEBUG] Middleware completed', {
+    correlationId,
     statusCode: response.status,
     duration: Date.now() - startTime,
     rateLimitRemaining: rateLimit.remaining,
