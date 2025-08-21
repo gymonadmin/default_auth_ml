@@ -15,6 +15,7 @@
     "test:phase2": "tsx tests/run-phase2.ts",
     "test:user-entity": "tsx tests/user-entity.test.ts",
     "test:profile-entity": "tsx tests/profile-entity.test.ts",
+    "test:delete-account": "tsx tests/delete-account.test.ts",
     "test:user-repository": "tsx tests/user-repository.test.ts",
     "test:session-repository": "tsx tests/session-repository.test.ts"
   },

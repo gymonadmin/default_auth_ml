@@ -12,6 +12,7 @@ import {
 
 @Entity('profiles')
 @Index('profiles_user_id_unique', ['userId'], { unique: true })
+@Index('idx_profiles_deleted_at', ['deletedAt'])
 export class Profile {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -35,6 +36,12 @@ export class Profile {
     nullable: false 
   })
   lastName!: string;
+
+  @Column({ 
+    type: 'timestamptz', 
+    nullable: true 
+  })
+  deletedAt!: Date | null;
 
   @CreateDateColumn({ 
     type: 'timestamptz',
@@ -69,9 +76,25 @@ export class Profile {
     return `${firstInitial}${lastInitial}`;
   }
 
+  get isDeleted(): boolean {
+    return this.deletedAt !== null;
+  }
+
+  get isActive(): boolean {
+    return this.deletedAt === null;
+  }
+
   // Methods
   updateName(firstName: string, lastName: string): void {
     this.firstName = firstName.trim();
     this.lastName = lastName.trim();
+  }
+
+  markAsDeleted(): void {
+    this.deletedAt = new Date();
+  }
+
+  restore(): void {
+    this.deletedAt = null;
   }
 }

@@ -29,6 +29,7 @@ export interface UseAuthReturn {
   sendMagicLink: (request: SendMagicLinkRequest) => Promise<AuthResponse>;
   verifyMagicLink: (request: VerifyMagicLinkRequest) => Promise<AuthResponse>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<AuthResponse>;
   clearError: () => void;
 }
 
@@ -197,6 +198,65 @@ export function useAuth(): UseAuthReturn {
     }
   }, [refresh]);
 
+  // Delete account
+  const deleteAccount = useCallback(async (): Promise<AuthResponse> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Get CSRF token for delete account
+      const csrfToken = getCSRFToken();
+      
+      if (!csrfToken) {
+        setError('Security token not available. Please refresh and try again.');
+        return {
+          success: false,
+          message: 'Security token not available. Please refresh and try again.',
+        };
+      }
+
+      const response = await makeAuthenticatedRequest('/api/auth/delete-account', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMessage = result.error?.message || 'Failed to delete account';
+        
+        // If CSRF token was invalid, try to get a new one
+        if (result.error?.code === 'CSRF_TOKEN_INVALID') {
+          setError('Security token expired. Please refresh and try again.');
+        } else {
+          setError(errorMessage);
+        }
+        
+        return {
+          success: false,
+          message: errorMessage,
+        };
+      }
+
+      // Account deleted successfully - redirect to home/signin
+      window.location.href = '/signin';
+
+      return {
+        success: true,
+        message: result.message,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Network error occurred';
+      setError(errorMessage);
+      return {
+        success: false,
+        message: errorMessage,
+      };
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   // Sign out
   const signOut = useCallback(async () => {
     setIsLoading(true);
@@ -246,6 +306,7 @@ export function useAuth(): UseAuthReturn {
     sendMagicLink,
     verifyMagicLink,
     signOut,
+    deleteAccount,
     clearError,
   };
 }

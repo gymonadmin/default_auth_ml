@@ -53,6 +53,13 @@ export interface VerifyMagicLinkRequest {
   city?: string;
 }
 
+export interface DeleteAccountRequest {
+  ipAddress?: string;
+  userAgent?: string;
+  country?: string;
+  city?: string;
+}
+
 export interface MagicLinkResponse {
   success: boolean;
   message: string;
@@ -67,6 +74,11 @@ export interface VerifyMagicLinkResponse {
   session: Session;
   isNewUser: boolean;
   redirectUrl?: string;
+}
+
+export interface DeleteAccountResponse {
+  success: boolean;
+  message: string;
 }
 
 export interface AuthServiceConfig {
@@ -725,6 +737,158 @@ export class AuthService {
       throw error;
     }
   }
+
+/**
+ * Delete user account
+ */
+async deleteAccount(userId: string, request: DeleteAccountRequest): Promise<DeleteAccountResponse> {
+  const startTime = Date.now();
+  
+  try {
+    this.logger.info('Starting account deletion process', {
+      userId,
+      ipAddress: request.ipAddress,
+      correlationId: this.correlationId,
+    });
+
+    // Get user data before deletion
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw new AuthError(
+        ErrorCode.RECORD_NOT_FOUND,
+        'User account not found',
+        404,
+        { userId },
+        this.correlationId,
+        'Account not found'
+      );
+    }
+
+    if (!user.isActive) {
+      throw new AuthError(
+        ErrorCode.ACCOUNT_DELETED,
+        'Account is already deleted',
+        400,
+        { userId },
+        this.correlationId,
+        'Account is already deleted'
+      );
+    }
+
+    // Start database transaction for account deletion
+    await this.dataSource.transaction(async (manager) => {
+      const transactionUserRepo = new UserRepository(
+        { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
+        this.correlationId
+      );
+      const transactionProfileRepo = new ProfileRepository(  
+        { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
+        this.correlationId
+      );
+      const transactionSessionRepo = new SessionRepository(
+        { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
+        this.correlationId
+      );
+      const transactionAuditRepo = new AuditLogRepository(
+        { getRepository: (entity) => manager.getRepository(entity) } as DataSource,
+        this.correlationId
+      );
+
+      // Soft delete user
+      await transactionUserRepo.softDelete(userId);
+
+      // Soft delete profile
+      await transactionProfileRepo.softDeleteByUserId(userId);
+
+      // Revoke all active sessions
+      const revokedCount = await transactionSessionRepo.revokeAllForUser(userId);
+
+      // Log audit event
+      await transactionAuditRepo.logSuccess(
+        user.email,
+        AuditEvent.ACCOUNT_DELETED,
+        {
+          userId: user.id,
+          context: {
+            revokedSessions: revokedCount,
+            deletedAt: new Date().toISOString(),
+          },
+          ipAddress: request.ipAddress || undefined,
+          userAgent: request.userAgent || undefined,
+          country: request.country || undefined,
+          city: request.city || undefined,
+          correlationId: this.correlationId,
+        }
+      );
+
+      this.logger.info('Account deleted successfully', {
+        userId: user.id,
+        email: user.email,
+        revokedSessions: revokedCount,
+        correlationId: this.correlationId,
+      });
+    });
+
+    const duration = Date.now() - startTime;
+    this.logger.info('Account deletion completed successfully', {
+      userId: user.id,
+      email: user.email,
+      duration,
+      correlationId: this.correlationId,
+    });
+
+    return {
+      success: true,
+      message: 'Account deleted successfully',
+    };
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    this.logger.error('Account deletion failed', {
+      userId,
+      duration,
+      correlationId: this.correlationId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { message: String(error) },
+    });
+
+    // Log audit failure if we have user data
+    try {
+      const user = await this.userRepo.findById(userId);
+      if (user) {
+        await this.auditRepo.logFailure(
+          user.email,
+          AuditEvent.ACCOUNT_DELETED,
+          error instanceof Error ? error.message : 'Unknown error',
+          {
+            userId: user.id,
+            context: { 
+              error: error instanceof Error ? error.name : 'UnknownError',
+            },
+            ipAddress: request.ipAddress,
+            userAgent: request.userAgent,
+            correlationId: this.correlationId,
+          }
+        );
+      }
+    } catch (auditError) {
+      this.logger.error('Failed to log audit failure', {
+        correlationId: this.correlationId,
+        error: auditError instanceof Error ? {
+          message: auditError.message,
+          name: auditError.name,
+          stack: auditError.stack,
+        } : { message: String(auditError) },
+      });
+    }
+
+    throw error;
+  }
+}  
 
   /**
    * Check rate limiting for magic link requests

@@ -20,6 +20,7 @@ export enum AuditEvent {
   SESSION_CREATED = 'session_created',
   SESSION_EXPIRED = 'session_expired',
   RATE_LIMIT_EXCEEDED = 'rate_limit_exceeded',
+  ACCOUNT_DELETED = 'account_deleted',
 }
 
 @Entity('audit_logs')
@@ -191,6 +192,10 @@ export class AuditLog {
 
   isRateLimitExceeded(): boolean {
     return this.event === AuditEvent.RATE_LIMIT_EXCEEDED;
+  }
+
+  isAccountDeleted(): boolean {
+    return this.event === AuditEvent.ACCOUNT_DELETED;
   }
 
   getContextValue<T = any>(key: string): T | undefined {

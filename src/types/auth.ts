@@ -1,4 +1,4 @@
-// src/types/api.ts
+// src/types/auth.ts
 
 // Base API response structure
 export interface ApiResponse<T = any> {
@@ -110,6 +110,10 @@ export interface SessionValidationApiResponse extends ApiResponse {
 }
 
 export interface SignOutApiResponse extends ApiResponse {
+  message: string;
+}
+
+export interface DeleteAccountApiResponse extends ApiResponse {
   message: string;
 }
 

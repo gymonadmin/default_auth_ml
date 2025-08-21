@@ -1,5 +1,5 @@
 // src/repositories/profile-repository.ts
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { Profile } from '@/entities/profile';
 import { DatabaseError, ErrorCode, mapDatabaseErrorCode } from '@/lib/errors/error-codes';
 import { Logger } from '@/lib/config/logger';
@@ -20,14 +20,17 @@ export class ProfileRepository {
   }
 
   /**
-   * Find profile by user ID
+   * Find profile by user ID (excluding deleted profiles)
    */
   async findByUserId(userId: string): Promise<Profile | null> {
     try {
       this.logger.debug('Finding profile by user ID', { userId });
       
       const profile = await this.repository.findOne({
-        where: { userId },
+        where: { 
+          userId,
+          deletedAt: IsNull()
+        },
         relations: ['user'],
       });
 
@@ -59,14 +62,17 @@ export class ProfileRepository {
   }
 
   /**
-   * Find profile by ID
+   * Find profile by ID (excluding deleted profiles)
    */
   async findById(id: string): Promise<Profile | null> {
     try {
       this.logger.debug('Finding profile by ID', { profileId: id });
       
       const profile = await this.repository.findOne({
-        where: { id },
+        where: { 
+          id,
+          deletedAt: IsNull()
+        },
         relations: ['user'],
       });
 
@@ -112,6 +118,7 @@ export class ProfileRepository {
         userId: profileData.userId,
         firstName: profileData.firstName.trim(),
         lastName: profileData.lastName.trim(),
+        deletedAt: null,
       });
 
       const savedProfile = await this.repository.save(profile);
@@ -262,7 +269,99 @@ export class ProfileRepository {
   }
 
   /**
-   * Delete profile
+   * Soft delete profile
+   */
+  async softDelete(id: string): Promise<void> {
+    try {
+      this.logger.debug('Soft deleting profile', { profileId: id });
+      
+      const profile = await this.findById(id);
+      if (!profile) {
+        throw new DatabaseError(
+          ErrorCode.RECORD_NOT_FOUND,
+          'Profile not found',
+          { profileId: id },
+          this.logger['correlationId']
+        );
+      }
+
+      profile.markAsDeleted();
+      await this.repository.save(profile);
+      
+      this.logger.info('Profile soft deleted successfully', { profileId: id });
+    } catch (error) {
+      // Re-throw if it's already a DatabaseError
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
+      
+      this.logger.error('Error soft deleting profile', {
+        profileId: id,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
+      throw new DatabaseError(
+        errorCode,
+        'Failed to soft delete profile',
+        { 
+          profileId: id, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
+        this.logger['correlationId']
+      );
+    }
+  }
+
+  /**
+   * Soft delete profile by user ID
+   */
+  async softDeleteByUserId(userId: string): Promise<void> {
+    try {
+      this.logger.debug('Soft deleting profile by user ID', { userId });
+      
+      const profile = await this.findByUserId(userId);
+      if (!profile) {
+        this.logger.debug('No profile found for user ID', { userId });
+        return; // No profile to delete
+      }
+
+      profile.markAsDeleted();
+      await this.repository.save(profile);
+      
+      this.logger.info('Profile soft deleted successfully by user ID', { 
+        userId, 
+        profileId: profile.id 
+      });
+    } catch (error) {
+      this.logger.error('Error soft deleting profile by user ID', {
+        userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : { message: String(error) },
+      });
+
+      const errorCode = mapDatabaseErrorCode(error);
+      throw new DatabaseError(
+        errorCode,
+        'Failed to soft delete profile by user ID',
+        { 
+          userId, 
+          originalError: error instanceof Error ? error.name : 'Unknown' 
+        },
+        this.logger['correlationId']
+      );
+    }
+  }
+
+  /**
+   * Delete profile (hard delete)
    */
   async delete(id: string): Promise<void> {
     try {
@@ -310,14 +409,17 @@ export class ProfileRepository {
   }
 
   /**
-   * Check if profile exists for user
+   * Check if profile exists for user (excluding deleted)
    */
   async existsForUser(userId: string): Promise<boolean> {
     try {
       this.logger.debug('Checking if profile exists for user', { userId });
       
       const count = await this.repository.count({
-        where: { userId },
+        where: { 
+          userId,
+          deletedAt: IsNull()
+        },
       });
 
       const exists = count > 0;
@@ -351,7 +453,7 @@ export class ProfileRepository {
   }
 
   /**
-   * Search profiles by name
+   * Search profiles by name (excluding deleted)
    */
   async searchByName(query: string, limit: number = 20): Promise<Profile[]> {
     try {
@@ -365,6 +467,7 @@ export class ProfileRepository {
           { query: `%${query}%` }
         )
         .andWhere('user.deletedAt IS NULL')
+        .andWhere('profile.deletedAt IS NULL')
         .take(limit)
         .orderBy('profile.firstName', 'ASC')
         .addOrderBy('profile.lastName', 'ASC')
